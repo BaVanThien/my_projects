@@ -1,0 +1,3142 @@
+========== CORE ==========
+
+---------- Core/Display_task.c ----------
+/* =========================================================
+ *  Display_task.c
+ *  Clock display logic 
+ *
+ *  Dependencies:
+ *    - main.h    : global variables (g_DisplayStatus, g_DisplayMode, rtc_*, flags)
+ *    - TFT.h     : drawString, fillRect, fullDisplay (pure TFT driver)
+ *    - DS3231.h  : DS3231_Get_Time, DS3231_Get_Day
+ *    - FONT.h    : FontDef, Font_7x10
+ *    - String.h  : number_to_character_t
+ * ========================================================= */
+
+#include "Display_task.h" 
+#include "main.h"         
+#include "TFT.h"          
+#include "DS3231.h"      
+#include "FONT.h"         
+#include "String.h"    
+
+/* =========================================================
+ *  DISPLAY A 2-DIGIT NUMBER (hour/minute/second/day/month/year)
+ * ========================================================= */
+void Display_Time_Digit(uint8_t x, uint8_t y, uint16_t number,
+                        FontDef font, uint16_t color, uint16_t bg)
+{
+    char str[3];
+    number_to_character_t((uint8_t)number, (uint8_t*)str, 2);
+    str[2] = '\0';
+    drawString(x, y, (uint8_t*)str, font, color, bg);
+}
+
+/* =========================================================
+ *  DRAW TIME IN TOP REGION (y=50)
+ * ========================================================= */
+void Update_Time_Top(void)
+{
+    Display_Time_Digit(36, 50, rtc_h, Font_7x10, 0xFFFF, 0x1098);
+    drawString(50, 50, (uint8_t*)":", Font_7x10, 0xFFFF, 0x1098);
+    Display_Time_Digit(57, 50, rtc_m, Font_7x10, 0xFFFF, 0x1098);
+    drawString(71, 50, (uint8_t*)":", Font_7x10, 0xFFFF, 0x1098);
+    Display_Time_Digit(78, 50, rtc_s, Font_7x10, 0xFFFF, 0x1098);
+}
+
+/* =========================================================
+ *  DRAW DATE IN TOP REGION (y=50)
+ * ========================================================= */
+void Update_Date_Top(void)
+{
+    Display_Time_Digit(36, 50, rtc_d,  Font_7x10, 0xFFFF, 0x1098);
+    drawString(50, 50, (uint8_t*)"/",  Font_7x10, 0xFFFF, 0x1098);
+    Display_Time_Digit(57, 50, rtc_mt, Font_7x10, 0xFFFF, 0x1098);
+    drawString(71, 50, (uint8_t*)"/",  Font_7x10, 0xFFFF, 0x1098);
+    Display_Time_Digit(78, 50, rtc_y,  Font_7x10, 0xFFFF, 0x1098);
+}
+
+/* =========================================================
+ *  DRAW DATE IN BOTTOM REGION (y=70)
+ * ========================================================= */
+void Update_Date_Bottom(void)
+{
+    Display_Time_Digit(36, 70, rtc_d,  Font_7x10, 0xFFE0, 0x1098);
+    drawString(50, 70, (uint8_t*)"/",  Font_7x10, 0xFFE0, 0x1098);
+    Display_Time_Digit(57, 70, rtc_mt, Font_7x10, 0xFFE0, 0x1098);
+    drawString(71, 70, (uint8_t*)"/",  Font_7x10, 0xFFE0, 0x1098);
+    Display_Time_Digit(78, 70, rtc_y,  Font_7x10, 0xFFE0, 0x1098);
+}
+
+/* =========================================================
+ *  FETCH RTC DATA ！ shared by both Update functions below
+ * ========================================================= */
+static void Fetch_RTC_Data(void)
+{
+    if (g_IsTimeSynced == 1)
+    {
+        DS3231_Get_Time(&rtc_h, &rtc_m, &rtc_s);
+        DS3231_Get_Day(&rtc_d, &rtc_mt, &rtc_y);
+    }
+    else
+    {
+        rtc_h = 0;  rtc_m = 0;  rtc_s = 0;
+        rtc_d = 1;  rtc_mt = 1; rtc_y = 26;
+    }
+}
+
+/* =========================================================
+ *  FULL SCREEN UPDATE (clears background ！ used on display wake)
+ * ========================================================= */
+void Update_Clock_Display(void)
+{
+    if (g_DisplayStatus == DISPLAY_STATUS_OFF) return;
+
+    Fetch_RTC_Data();
+
+    fillRect(28, 45, 100, 65, 0x1098); // clear top region
+
+    if (g_DisplayMode == DISPLAY_MODE_TIME)
+    {
+        Update_Time_Top();
+        Update_Date_Bottom();
+    }
+    else
+    {
+        Update_Date_Top();
+        Update_Date_Bottom();
+    }
+}
+
+/* =========================================================
+ *  SILENT UPDATE (no background clear ！ called from TIM3)
+ * ========================================================= */
+void Update_Clock_Display_Silent(void)
+{
+    if (g_DisplayStatus == DISPLAY_STATUS_OFF) return;
+
+    Fetch_RTC_Data();
+
+    if (g_DisplayMode == DISPLAY_MODE_TIME)
+    {
+        Update_Time_Top();
+        Update_Date_Bottom();
+    }
+    else
+    {
+        Update_Date_Top();
+        Update_Date_Bottom();
+    }
+}
+
+/* =========================================================
+ *  FULL SCREEN REFRESH (display on/off)
+ * ========================================================= */
+void Display_RefreshScreen(void)
+{
+    if (g_DisplayStatus == DISPLAY_STATUS_OFF)
+    {
+        fullDisplay(0x0000); // off ！ fill black
+    }
+    else
+    {
+        fullDisplay(0xF800); // on ！ fill background
+        Update_Clock_Display();
+    }
+}
+
+/* =========================================================
+ *  TOGGLE DISPLAY MODE (button: switch time/date view)
+ * ========================================================= */
+void Display_ChangeMode(void)
+{
+    if (g_DisplayMode == DISPLAY_MODE_TIME)
+    {
+        Update_Time_Top();
+        Update_Date_Bottom();
+    }
+    else
+    {
+        Update_Date_Top();
+        Update_Date_Bottom();
+    }
+}
+
+/* =========================================================
+ *  MAIN TASK ！ called in while(1)
+ * ========================================================= */
+void Display_Task(void)
+{
+    if (g_ScreenChangedFlag)
+    {
+        g_ScreenChangedFlag = 0;
+        Display_RefreshScreen();
+    }
+    else if (g_DisplayModeToggleFlag && (g_DisplayStatus == DISPLAY_STATUS_ON))
+    {
+        // BUG FIX: old condition "&& DISPLAY_STATUS_ON" was always true
+        // Fixed to: "g_DisplayStatus == DISPLAY_STATUS_ON"
+        g_DisplayModeToggleFlag = 0;
+        Display_ChangeMode();
+    }
+    else if (g_UpdateDisplayFlag)
+    {
+        g_UpdateDisplayFlag = 0;
+        Update_Clock_Display_Silent(); // TIM3
+    }
+}
+
+---------- Core/UART_Task.c ----------
+
+#include "UART_task.h"    // own header
+#include "main.h"         // RingBuffer, DmaBuffer, RING_BUF_SIZE
+#include "UART.h"         // Update_RingBuffer_From_DMA, CheckRxBuffer
+
+void UART_Task(void)
+{
+    Update_RingBuffer_From_DMA(RingBuffer,DmaBuffer);
+    CheckRxBuffer(RingBuffer,RxBuffer,RING_BUF_SIZE);
+}
+
+---------- Core/main.c ----------
+#include "main.h"         // extern vars, enum, defines
+#include "RCC.h"          // System_Clock_Init g?i RCC_Enable_*
+#include "GPIO.h"         // GPIO_Config PA0, PA1
+#include "EXTI.h"         // EXIT0_Init, EXTI1_Init
+#include "Tim.h"          // TIM2_init_IT, TIM3_init_IT
+#include "UART.h"         // UART1_Init, UART1_SendString
+#include "DMA.h"          // DAM1_UART_Init
+#include "I2C.h"          // I2C_Init
+#include "SPI.h"          // SPI1_Init_Master
+#include "TFT.h"          // initTFT, fullDisplay, Update_Clock_Display
+#include "BUTTON.h"       // Button_Task (khai b│o trong BUTTON.h)
+#include "UART_task.h"    
+/* ========================================================================== */
+/*  GLOBAL VARIABLES
+ ========================================================================== */
+
+// --------------------------------------------------------------------------
+//SYSTEM STATE MANAGEMENT & SCREEN NAVIGATION (STATE MACHINE)
+// --------------------------------------------------------------------------
+volatile DisplayMode_t g_DisplayMode = DISPLAY_MODE_TIME;     // BUTTON
+volatile DisplayStatus_t g_DisplayStatus = DISPLAY_STATUS_ON; // BUTTON
+volatile uint8_t g_ScreenChangedFlag = 0;                     
+volatile uint8_t g_DisplayModeToggleFlag = 0;
+volatile uint8_t g_UpdateDisplayFlag = 0;// TIM3
+// --------------------------------------------------------------------------
+// BUTTON FLAGS EVENT
+// --------------------------------------------------------------------------
+volatile uint8_t g_Button1PressedFlag = 0;
+volatile uint8_t g_Button2PressedFlag = 0;
+
+// --------------------------------------------------------------------------
+// REAL-TIME DATA (RTC DS3231 DATA)
+// --------------------------------------------------------------------------
+volatile uint8_t g_IsTimeSynced = 0;
+volatile uint8_t rtc_h, rtc_m, rtc_s;
+volatile uint8_t rtc_d, rtc_mt, rtc_y;
+
+// --------------------------------------------------------------------------
+// UART DATA TRANSMISSION & DMA BUFFERS
+// --------------------------------------------------------------------------
+uint8_t RxBuffer[BUFFER_SIZE];
+uint8_t DmaBuffer[DMA_BUF_SIZE];
+uint8_t RingBuffer[RING_BUF_SIZE];
+
+/* ========================================================================== */
+
+void System_Clock_Init(void)
+{
+    RCC_Enable_DMA1();
+    RCC_Enable_PortA();
+    RCC_Enable_PortB();
+    RCC_Enable_AFIO();
+    RCC_Enable_UART1();
+    RCC_Enable_TIM2();
+    RCC_Enable_TIM3();
+    RCC_Enable_I2C1();
+    RCC_Enable_SPI1();
+}
+int main()
+{
+    System_Clock_Init();
+
+    TIM2_init_IT();
+    TIM3_init_IT();
+    EXIT0_Init();
+    EXTI1_Init();
+    UART1_Init();
+    DAM1_UART_Init(DmaBuffer, DMA_BUF_SIZE);
+    I2C_Init();
+    SPI1_Init_Master();
+    initTFT();
+
+    GPIO_Config(GPIOA, GPIO_PIN_0, GPIO_MODE_INPUT_PD);
+    GPIO_Config(GPIOA, GPIO_PIN_1, GPIO_MODE_INPUT_PD);
+
+    UART1_SendString("=== System Started ===\r\n");    //check  
+    fullDisplay(0x1098);
+    Update_Clock_Display();
+    while (1)
+    {
+        Button_Task();
+        UART_Task();
+        Display_Task();
+    }
+}
+
+---------- Core/Display_task.h ----------
+#ifndef __DISPLAY_TASK_H
+#define __DISPLAY_TASK_H
+
+void Display_Task(void);
+void Update_Clock_Display(void);
+void Display_RefreshScreen(void);
+void Display_ChangeMode(void);
+#endif 
+
+---------- Core/UART_task.h ----------
+#ifndef __UART_TASK_H
+#define __UART_TASK_H
+#include <stdint.h>
+#include "TFT.h"
+
+/* =========================================================
+ *  Display_task.h
+ *  Clock display logic ！ moved from TFT.c
+ * ========================================================= */
+
+// ---------- Main task (called in while(1)) ----------
+void Display_Task(void);
+void Display_RefreshScreen(void);
+void Display_ChangeMode(void);
+
+// ---------- Screen update ----------
+void Update_Clock_Display(void);        // Full redraw (clears background)
+void Update_Clock_Display_Silent(void); // Update without clearing background (TIM3)
+
+// ---------- Draw each region ----------
+void Update_Time_Top(void);
+void Update_Date_Top(void);
+void Update_Date_Bottom(void);
+void Display_Time_Digit(uint8_t x, uint8_t y, uint16_t number,
+                        FontDef font, uint16_t color, uint16_t bg);
+void UART_Task(void);
+#endif
+
+---------- Core/main.h ----------
+#ifndef __MAIN_H
+#define __MAIN_H
+
+#include <stdint.h>
+
+
+
+
+/* ========================================================================== */
+//(SYSTEM CONFIGURATION & BUFFERS)               */
+/* ========================================================================== */
+ 
+#define DMA_BUF_SIZE     30
+#define RING_BUF_SIZE    50
+#define BUFFER_SIZE      30
+
+/* ========================================================================== */
+//  (TYPEDEF ENUM/STRUCT)               
+/* ========================================================================== */
+typedef enum {
+    DISPLAY_MODE_TIME, 
+    DISPLAY_MODE_DATE  
+} DisplayMode_t;
+
+typedef enum {
+    DISPLAY_STATUS_OFF,
+    DISPLAY_STATUS_ON
+} DisplayStatus_t;
+
+
+/* ========================================================================== */
+// EXTERN VARIABLES                  
+/* ========================================================================== */
+extern volatile DisplayMode_t g_DisplayMode;
+extern volatile DisplayStatus_t g_DisplayStatus;
+extern volatile uint8_t g_ScreenChangedFlag;
+extern volatile uint8_t g_DisplayModeToggleFlag;
+extern volatile uint8_t g_Button1PressedFlag;
+extern volatile uint8_t g_Button2PressedFlag;
+extern volatile uint8_t g_IsTimeSynced;
+extern volatile uint8_t rtc_h, rtc_m, rtc_s;
+extern volatile uint8_t rtc_d, rtc_mt,rtc_y; 
+extern uint8_t RxBuffer[BUFFER_SIZE];
+extern uint8_t RingBuffer[RING_BUF_SIZE];
+extern uint8_t DmaBuffer[DMA_BUF_SIZE];
+extern volatile uint8_t g_UpdateDisplayFlag;
+
+/* ========================================================================== */
+// PROTOTYPE
+/* ========================================================================== */
+void System_Clock_Init(void);
+
+#endif
+ 
+
+
+
+
+========== DRIVER ==========
+
+---------- Driver/ADC.c ----------
+#include<stdint.h>
+#include"ADC.h"
+#include"RCC.h"
+#include"GPIO.h"
+
+void ADC01_CH01_Init(void){
+	// Enable GPIOA and ADC1 clocks
+	RCC->APB2ENR.BITS.IOPAEN = 1;
+	RCC->APB2ENR.BITS.ADC1EN = 1;
+
+	// Configure PA0 as analog input (ADC channel 0)
+	GPIO_Config(GPIOA, GPIO_PIN_0, GPIO_MODE_INPUT_ANALOG);
+
+	// Configure sample time for channel 0 (SMPR2 bits [2:0]) -> maximum sampling
+	ADC_SMPR2 &= ~(0x7 << (3 * 0));
+	ADC_SMPR2 |=  (0x7 << (3 * 0));
+
+	// Regular sequence length = 1 conversion
+	ADC_SQR1 &= ~(0xF << 20);
+
+	// First conversion in regular sequence = channel 0
+	ADC_SQR3 &= ~(0x1F << 0);
+	ADC_SQR3 |=  (0 << 0);
+
+	// Turn on ADC
+	ADC_CR2 |= 1;
+
+	// Small delay to let ADC power up
+	for(volatile int i = 0; i < 1000; ++i);
+}
+
+uint16_t ADC01_CH0_Read(void){
+	// Start conversion by software
+	ADC_CR2 |= (1 << 22); // SWSTART (software start)
+
+	// Wait for end of conversion (EOC)
+	while(!(ADC_SR & (1 << 1)));
+
+	// Read and return result
+	return (uint16_t)(ADC_DR & 0xFFFF);
+}
+
+
+---------- Driver/AFIO.c ----------
+
+---------- Driver/BUTTON.c ----------
+
+#include "BUTTON.h"       // own header ！ already present
+#include "GPIO.h"         // GPIO_Read_Pin
+#include "main.h"         // g_Button1PressedFlag, g_Button2PressedFlag
+#include "Tim.h"          // g_DisplayStatus, g_DisplayMode, g_ScreenChangedFlag
+#include "UART.h"
+
+
+void Button_Task(void)
+{
+
+    if (g_Button2PressedFlag)
+    {
+        delay_ms(200);
+        g_Button2PressedFlag = 0;
+        /*  state on/ off display */
+        if (g_DisplayStatus == DISPLAY_STATUS_ON)
+            g_DisplayStatus = DISPLAY_STATUS_OFF;
+        else
+            g_DisplayStatus = DISPLAY_STATUS_ON;
+        g_ScreenChangedFlag = 1;
+
+    }
+    if(g_Button1PressedFlag)
+    {
+        delay_ms(200);
+        g_Button1PressedFlag = 0;
+        /*  toggle ngay/gio */
+        if(g_DisplayStatus == DISPLAY_STATUS_ON)
+        {
+            if (g_DisplayMode == DISPLAY_MODE_TIME)
+                g_DisplayMode = DISPLAY_MODE_DATE;
+            else g_DisplayMode = DISPLAY_MODE_TIME;
+            g_DisplayModeToggleFlag = 1;               //Toggle display mode (no clear screen)
+        }
+
+    }
+}
+
+
+---------- Driver/DMA.c ----------
+#include "DMA.h"          // own header ！ already present
+#include "UART.h"         // USART1_DR (register address)
+
+
+
+void DAM1_UART_Init(uint8_t * buffer, uint16_t size)
+{
+    // config address and size
+    DMA_CCR5 &= ~(uint32_t)(1 << 0);   //off DMA
+
+    DMA_CPAR5 = (uint32_t)&USART1_DR;  //  assign address USART1 Data Register
+    DMA_CMAR5 = (uint32_t)buffer;       // assign address
+    DMA_CNDTR5 = size;
+
+    DMA_CCR5 |= (1 << 7) | (1 << 5) | (1 << 1) | (1 << 0);
+    DMA_CCR5 &=~(uint32_t)(1 << 1);
+
+}
+
+void DMA1_Reset(uint16_t size)
+{
+    DMA_CCR5 &= ~(uint32_t)(1 << 0);
+    DMA_CNDTR5 = size;
+    DMA_CCR5 |= (1 << 0);              // on DAM again
+}
+
+
+---------- Driver/EXTI.c ----------
+
+#include "EXTI.h"         // own header ！ already present
+#include "AFIO.h"         // AFIO->EXTICR ！ already present
+#include "main.h"         // g_Button1PressedFlag, g_Button2PressedFlag
+#include "GPIO.h"         // GPIO_Read_Pin
+#include "UART.h"         // UART1_SendString
+#include "Tim.h"          // delay_ms
+
+void EXIT0_Init(void)
+{
+    // IRQs
+    AFIO->EXTICR1.REG &=~(uint32_t)(0xF << 0);          // clear bitTI->IMR
+    EXTI->IMR.BITS.BIT0 = 1;
+    EXTI->RTSR.BITS.BIT0 = 1;                           // choice rising
+    EXTI->FTSR.BITS.BIT0 = 0;
+    // NIVIC
+    NVIC_ISER0 |=(uint32_t)(1<< 6);
+}
+void EXTI1_Init(void)
+{
+    // choice PA1 cho EXTI1
+    AFIO->EXTICR1.REG &= ~(uint32_t)(0xF << 4);
+    // Enable interrupt mask cho Line 1
+    EXTI->IMR.BITS.BIT1 = 1;
+    // choice rising
+    EXTI->RTSR.BITS.BIT1 = 1;
+    EXTI->FTSR.BITS.BIT1 = 0;
+    // Enable EXTI1 IRQ trong NVIC
+    NVIC_ISER0 |= (uint32_t)(1 << 7);
+}
+
+void EXTI0_IRQHandler(void)// function interup
+{
+    if(EXTI->PR.REG & (1 << 0))
+    {
+        EXTI->PR.REG |= (uint32_t)(1<<0);
+        if(GPIO_Read_Pin(GPIOA, GPIO_PIN_0) == 1)
+        {
+            g_Button1PressedFlag = 1;
+        }
+
+    }
+}
+void EXTI1_IRQHandler(void)
+{
+    if (EXTI->PR.REG & (1 << 1))
+    {
+        EXTI->PR.REG = (uint32_t)(1 << 1);
+        if(GPIO_Read_Pin(GPIOA, GPIO_PIN_1) == 1)
+        {
+            g_Button2PressedFlag = 1;
+        }
+
+    }
+}
+
+uint8_t get_Pin_Number(uint16_t gpio_pin)
+
+{
+    for(uint8_t i = 0; i < 16; i++)
+    {
+        if(gpio_pin &(1<<i))
+        {
+            return i;
+        }
+    }
+    return 0xFF;
+}
+
+void EXIT_Config_Expert(GPIO_Typedef *port, uint8_t gpio_pin,uint8_t type)
+{
+    // config AFIO to choice port for pin
+    uint8_t port_code = 0;
+    uint32_t shift;
+    uint8_t pin;
+    if(port == GPIOA)
+    {
+        port_code = 0;              //0xb0000
+    }
+    else if(port == GPIOB)
+    {
+        port_code = 1;               //0xb0001
+    }
+    else if(port == GPIOC)
+    {
+        port_code = 2;              //0xb0010
+    }
+    pin = get_Pin_Number(gpio_pin);
+    shift = (pin % 4) * 4;
+
+    if(pin < 4)
+    {
+        AFIO->EXTICR1.REG &=~(uint32_t)(0xF << shift);
+        AFIO->EXTICR1.REG |= (uint32_t)(port_code << shift);
+    }
+    else if(pin < 8)
+    {
+        AFIO->EXTICR2.REG &=~(uint32_t)(0xF << 0);
+        AFIO->EXTICR2.REG |= (uint32_t)(port_code << shift);
+    }
+    else if(pin < 12 )
+    {
+        AFIO->EXTICR3.REG &=~(uint32_t)(0xF << 0);
+        AFIO->EXTICR3.REG |= (uint32_t)(port_code << shift);
+    }
+    // open masks interrup
+    EXTI->IMR.REG |= (uint32_t)(1 << pin);
+
+    // config mode interrup
+    if(type == EXTI_RISING_MODE)
+    {
+        EXTI->RTSR.REG |= (1<< pin);
+        EXTI->FTSR.REG &=~(uint32_t)(1<< pin);
+    }
+    else	if(type == EXTI_FALLING_MODE)
+    {
+        EXTI->FTSR.REG |=(uint32_t)(1<< pin);
+        EXTI->RTSR.REG &= ~(uint32_t)(1<< pin);
+    }
+    else
+    {
+        EXTI->RTSR.REG |= (1<< pin);
+        EXTI->FTSR.REG |= (1<< pin);
+    }
+
+    // config NVIC
+    if(pin <= 4 )
+    {
+        NVIC_ISER0 |= (1<<(pin + 6));
+    }
+    else if(pin >= 5 && pin <=9 )
+    {
+        NVIC_ISER0 |= (1<< 23);
+    }
+    else if(pin >= 10 && pin <=15)
+    {
+        NVIC_ISER1 |= (1<< (40 - 32));
+    }
+}
+
+void NVIC_UART_En(void)
+{
+    NVIC_ISER1 |= (1<< (37 - 32));
+}
+void NVIC_DMA1_En(void)
+{
+    NVIC_ISER0 |= (1<< 15);
+}
+
+
+
+---------- Driver/GPIO.c ----------
+
+#include "GPIO.h"
+
+void GPIO_Config(volatile GPIO_Typedef *GPIOx, uint16_t pin, uint32_t mode)
+{
+    uint32_t position = 0;
+    uint32_t config = 0;
+    for(position = 0 ; position < 16 ; position++)
+    {
+        if(pin & (1 << position))
+        {
+            //Clear 4 bit config
+            if(position < 8)
+            {
+                //CRL
+                GPIOx->CRL.REG &= ~(uint32_t)(0xF << (position*4));
+            }
+            else
+            {
+                //CRH
+                GPIOx->CRH.REG &= ~(uint32_t)(0xF << (position - 8)*4);
+            }
+            switch(mode)
+            {
+            case GPIO_MODE_OUTPUT_PP:
+                config = (0x03 << 0) | (0x00 << 2);
+                break;
+            case GPIO_MODE_OUTPUT_OD:
+                config = (0x03 << 0) | (0x01 << 2);
+                break;
+            case GPIO_MODE_AF_PP:
+                config = (0x03 << 0) | (0x02 << 2);
+                break;
+            case GPIO_MODE_AF_OD:
+                config = (0x03 << 0) | (0x03 << 2);
+                break;
+            case GPIO_MODE_INPUT_ANALOG:
+                config = (0x00 << 2);
+                break;
+            case GPIO_MODE_INPUT_FLOATING:
+                config = (0x01 << 2);
+                break;
+            case GPIO_MODE_INPUT_PU:
+                config = (0x02 << 2);
+                GPIOx->ODR.REG |= (1 << position);
+                break;
+            case GPIO_MODE_INPUT_PD:
+                config = (0x02 << 2);
+                GPIOx->ODR.REG &= ~(1 << position);
+                break;
+            }
+            if (mode == GPIO_MODE_INPUT_FLOATING ||
+                    mode == GPIO_MODE_INPUT_PD || mode == GPIO_MODE_INPUT_PU)
+            {
+                config |= 0x00;
+            }
+
+            if(position < 8)
+            {
+                GPIOx->CRL.REG |= (config << (position * 4));
+            }
+            else
+            {
+                GPIOx->CRH.REG |= (config << (position - 8) * 4);
+            }
+
+        }
+    }
+}
+
+void GPIO_Write_Pin(volatile GPIO_Typedef *GPIOx, uint16_t pin, uint8_t state)
+{
+
+    if(state)
+    {
+        GPIOx->BSRR.REG = pin;
+    }
+    else
+    {
+        GPIOx->BRR.REG = pin;
+    }
+
+}
+uint8_t GPIO_Read_Pin(volatile GPIO_Typedef *GPIOx, uint16_t pin)
+{
+
+    return ((GPIOx->IDR.REG & pin) ? 1 : 0);
+
+}
+
+---------- Driver/I2C.c ----------
+#include "I2C.h"          // own header ！ already present
+#include "RCC.h"          // RCC_Enable_PortB, RCC_Enable_AFIO, RCC_Enable_TIM2
+#include "GPIO.h"         // GPIO_Config
+
+
+void 	I2C_Init(void)
+{
+    RCC_Enable_PortB();
+    RCC_Enable_AFIO();
+    RCC_Enable_TIM2();
+
+    GPIO_Config(GPIOB,GPIO_PIN_6,GPIO_MODE_AF_OD);
+    GPIO_Config(GPIOB,GPIO_PIN_7,GPIO_MODE_AF_OD);
+    I2C1_CR1   &= ~(uint32_t)(1<< 0);                // disable
+    I2C1_CR2 = 8;                                    // on clock 8mhz
+    I2C1_CCR = 40;                                   //contro SCL in master mode flow 8mhz
+    I2C1_TRISE = 9;                                  //  chot clock
+    I2C1_CR1   |=  (1<< 0);                          ///Peripheral enable
+}
+
+void I2C_Start(void)
+{
+    I2C1_CR1 &= ~(uint32_t)(1 << 9);
+    I2C1_CR1 |= (1 << 8);
+    while(!(I2C1_SR1 & 0x01))
+    {
+
+    }
+    //Doing sth
+}
+void  I2C_Stop(void)
+{
+    I2C1_CR1 |= (1<<9);
+}
+void  I2C_Send_Addr(uint8_t addr, uint8_t rw)
+{
+    I2C1_DR = (uint32_t)((addr << 1) | (rw & 0x01));
+    while(!(I2C1_SR1 &(1<<1)))
+    {
+    }
+    (void)I2C1_SR2;
+}
+uint8_t I2C_Send_Data(uint8_t data)
+{
+    I2C1_DR = data;
+    while(!(I2C1_SR1 &(1 << 2))) {}                 // ACK down seccuss. on fail
+    if(I2C1_SR1 & (1 << 10))                        //  check NACK //ACK
+    {
+        I2C1_SR1 &= ~(uint32_t)(1 << 10);
+        I2C_Stop();
+        return 1;                                  // fail
+    }
+    return 0;                                      // success
+}
+uint8_t I2C_Read_Data(uint8_t ack)
+{
+    if(ack)
+    {
+        I2C1_CR1 |= (1<< 10);                       // ack = 1;
+    }
+    else
+    {
+        I2C1_CR1 &= ~(uint32_t)(1<< 10);            //ack = 0
+    }
+    while(!(I2C1_SR1 &(1 << 6))) {}                 // check RT
+    return(uint8_t)I2C1_DR;
+}
+
+
+
+
+
+---------- Driver/RCC.c ----------
+
+#include<stdint.h>
+#include"RCC.h"
+
+void RCC_Enable_PortA(void)
+{
+    RCC->APB2ENR.BITS.IOPAEN = 1;
+}
+void RCC_Enable_AFIO(void)
+{
+    RCC->APB2ENR.BITS.AFIOEN = 1;
+}
+void RCC_Enable_PortB(void)
+{
+    RCC->APB2ENR.BITS.IOPBEN = 1;
+}
+void RCC_Enable_TIM2(void)
+{
+    RCC->APB1ENR.BITS.TIM2EN = 1;
+}
+void RCC_Enable_UART1(void)
+{
+    RCC->APB2ENR.BITS.USART1EN = 1;
+}
+void RCC_Enable_SPI1(void)
+{
+    RCC->APB2ENR.BITS.SPI1EN = 1;
+}
+void RCC_Enable_I2C1(void)
+{
+    RCC->APB1ENR.BITS.I2C1EN = 1;
+}
+void RCC_Enable_USB(void)
+{
+    RCC->APB1ENR.BITS.USBEN = 1;
+}
+void RCC_Enable_DMA1(void)
+{
+    RCC->RCC_AHBENR.BITS.DMA1EN = 1;
+}
+void RCC_Enable_TIM3(void)
+{
+    RCC->APB1ENR.BITS.TIM3EN = 1;
+}
+
+---------- Driver/SPI.c ----------
+#include"SPI.h"
+#include "SPI.h"          // own header ！ already present
+#include "GPIO.h"         // GPIO_Config, GPIO_Write_Pin
+// NOT NEEDED: main.h ！ SPI.c does not use any global variables
+
+
+
+void SPI1_Init_Master(void)
+{
+    GPIO_Config(PORT_SCK, PIN_SCK, GPIO_MODE_AF_PP);
+    GPIO_Config(PORT_MOSI, PIN_MOSI, GPIO_MODE_AF_PP);
+    GPIO_Config(PORT_MISO, PIN_MISO, GPIO_MODE_INPUT_FLOATING);
+    GPIO_Config(PORT_CS, PIN_CS, GPIO_MODE_OUTPUT_PP);
+    SPI1_CR1 = 0;
+    SPI1_CR1 |= (1 << 2);                    //Master
+    SPI1_CR1 |= (0x05 << 3);                 // clock
+
+    SPI1_CR1 |= (1 << 9); 
+    SPI1_CR1 |= (1 << 8);
+    SPI1_CR1 |= (1 << 6);                   //Enable SPI
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 1);
+}
+
+void SPI1_Send(uint8_t data)
+{
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 0);
+    while(!(SPI1_SR & (1 << 1))) {}
+    SPI1_DR = data;
+    while(!(SPI1_SR & (1 << 0))) {}
+    uint32_t checkDataR = SPI1_DR;
+    //checkDataR++;
+    //checkDataR--;
+    while(SPI1_SR & (1 << 7)) {}
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 1);
+}
+
+---------- Driver/String.c ----------
+#include "String.h"
+
+
+void number_to_character_t(uint8_t value, uint8_t data[], uint8_t index)
+{
+    while(value != 0)
+    {
+        uint16_t du;
+        du = value % 10;
+        data[index - 1] =(uint8_t)du + '0';
+        index--;
+        value = value/10;
+    }
+    while(index != 0)
+    {
+        data[index - 1] = '0';
+        index--;
+    }
+}
+
+uint16_t character_to_number(uint8_t data[], uint8_t index)
+{
+    uint16_t value = 0;
+    for (uint8_t i = 0; i < index; i++)
+    {
+        uint8_t temp = data[i] - '0';
+        value = value*10 + temp;
+    }
+    return value;
+}
+
+
+
+---------- Driver/Tim.c ----------
+#include "Tim.h"          // own header ！ already present
+#include "main.h"         // g_UpdateDisplayFlag (used in TIM3_IRQHandler)
+#include "EXTI.h"         // NVIC_ISER0
+
+// Fsty = 8000mhz
+//        Fsty      8000
+//  f =  ------- =  ------- = 1mhz = 1000 stick each secon, 1ms 1 styck
+//       PSC + 1    8000
+//        1
+//   t = ----
+//        f
+
+volatile uint8_t blink_status = 0;
+
+void TIM2_init_IT(void)
+{
+    TIM2_PSC = 7999;                    //39999; //7999;//TIMx prescale//1000 step each seccon/ 1 ms is step
+    TIM2_ARR = 999;                     // Auto-Reload Register/
+    TIM2_CNT = 0;
+    TIM2_SR  &= ~(uint32_t)(1 << 0);   // clea flat
+    TIM2_DIER |= (1 << 0);             // Trigger interrupt enable,Interrupt enable register
+    TIM2_CR1  |= (1 << 0);             // TIMx control register 1 CEN: Conter enable
+    NVIC_ISER0 |= (1 << 28);
+}
+
+void TIM2_IRQHandler(void)
+{
+    if(TIM2_SR & 0x01)                 //UIF: Update interrupt flag;
+    {
+         //g_tick++; 
+    }
+    TIM2_SR &= ~(uint32_t)(1 <<0 );
+}
+void delay_ms(uint32_t ms)
+{
+
+    TIM2_PSC = 7999;
+    TIM2_ARR = ms;
+    TIM2_CNT  = 0;
+    TIM2_CR1 |= (1 << 0);
+    while(TIM2_CNT < ms) {}
+    TIM2_CR1 &= ~(uint32_t)(1 << 0);
+    TIM2_CNT = 0;
+}
+
+void TIM3_init_IT(void)
+{
+    TIM3_PSC = 7999;                   // Prescaler
+    TIM3_ARR = 999;                    // Auto Reload
+    TIM3_CNT = 0;
+    TIM3_SR &= ~(uint32_t)(1 << 0);    // Clear UIF flag
+    TIM3_DIER |= (1 << 0);             // Update Interrupt Enable
+    TIM3_CR1 |= (1 << 0);              // Counter Enable
+    NVIC_ISER0 |= (1 << 29);           // Enable TIM3 IRQ
+}
+
+void TIM3_IRQHandler(void)
+{
+    if(TIM3_SR & (1 << 0))
+    {
+        TIM3_SR &= ~(uint32_t)(1 << 0);
+
+        g_UpdateDisplayFlag = 1;
+    }
+}
+
+---------- Driver/UART.c ----------
+#include "UART.h"         // own header ！ already present
+#include "String.h"       // character_to_number ！ already present
+#include "main.h"         // RingBuffer, DmaBuffer, g_IsTimeSynced...
+#include "DS3231.h"       // DS3231_Set_Time, DS3231_Set_Day
+#include "RCC.h"          // RCC_Enable_PortA, RCC_Enable_AFIO, RCC_Enable_UART1
+#include "GPIO.h"         // GPIO_Config
+#include "Tim.h"          // time_c/time_n
+#include "DMA.h"        // DMA_CNDTR5, DMA_BUF_SIZE
+
+//#define BUFFER_SIZE 30
+//uint8_t RxBuffer[BUFFER_SIZE];        // arr store data
+static volatile uint8_t index_In = 0;    // index write data
+static volatile uint8_t index_Out = 0;
+static volatile uint8_t Rx_Byte_read;
+static volatile uint8_t index_cmdBuff = 0;
+
+//volatile uint8_t DmaBuffer[DMA_BUF_SIZE];
+//volatile uint8_t RingBuffer[RING_BUF_SIZE];
+static  uint16_t last_dma_pos = 0;
+
+#define BAUD_RATE 9600
+#define SYS_CLOCK 8000000
+#define MANTISSA (SYS_CLOCK / (16 * BAUD_RATE))
+#define FRACTION (((SYS_CLOCK % (16 * BAUD_RATE)) * 16) / (16 * BAUD_RATE))
+
+void UART1_Init(void)
+{
+    // Enable clock port A;
+    RCC_Enable_PortA();
+    RCC_Enable_AFIO();
+    RCC_Enable_UART1();
+    //PA9:output  AF PP_TX
+    GPIO_Config(GPIOA,GPIO_PIN_9,GPIO_MODE_AF_PP);
+    //PA10: input  AF FLOATING_RX
+    GPIO_Config(GPIOA,GPIO_PIN_10,GPIO_MODE_INPUT_FLOATING);
+    USART1_BRR = (MANTISSA << 4) | (FRACTION & 0x0F);   //set baudrate 9600 bps.
+    USART1_CR1 |= (1<<13);                              //UE: USART Enable
+    USART1_CR1 |= (1<<3);                               //TE: transmitter enable
+    USART1_CR1 |= (1<<2);                               //RE: TRansmitter is enable
+    USART1_CR3 |= (1 << 6);                             //(Bit DMAR - DMA Enable Receiver).
+//	USART1_CR1 |= (1<<5);                               //RXNE interrupt enable
+
+}
+void UART1_SendChar(char c)
+{
+    while(!(USART1_SR &(1 << 7)));// TXE
+    USART1_DR = c;
+}
+void UART1_SendString(const char *str)
+{
+    while(*str)
+    {
+        UART1_SendChar(*str++);
+    }
+}
+
+void CheckRxBuffer( uint8_t *str_Ring, uint8_t *str_Cmd,uint16_t ring_size)
+{
+    while (index_Out != index_In)
+    {
+        Rx_Byte_read = str_Ring[index_Out];
+
+        if (Rx_Byte_read == '[')
+        {
+            index_cmdBuff = 0;                          /* Reset index cmd Buffer  */
+        }
+
+        str_Cmd[index_cmdBuff] = Rx_Byte_read;
+
+        if (index_cmdBuff < BUFFER_SIZE - 1)
+        {
+            index_cmdBuff++;                               /* encre index cmd Buffer */
+        }
+
+        if (Rx_Byte_read == ']')
+        {
+            str_Cmd[index_cmdBuff] = 0;                      //Add a string termination character.
+
+            if (str_Cmd[0] == '[')                            /*Make sure it has the opening character. */
+            {
+                process_CmdBuffer(str_Cmd);                  // Call the handler function and pass the global array
+            }
+
+            str_Cmd[0] = 0;                                  /* Reset character */
+        }
+
+        index_Out++;
+        if (index_Out >= ring_size) index_Out = 0;
+    }
+}
+
+void process_CmdBuffer(uint8_t *p_cmdBuffer)
+{
+    // --- STEP 1: CHECK FORMATTING (Collision Marks: : and /) ---;
+    // Standard format: [HH:MM:SS DD/MM/YY] -> positions 3, 6, 9, 12, and 15 must be correct
+    if (p_cmdBuffer[3]  != ':' || p_cmdBuffer[6]  != ':' ||
+            p_cmdBuffer[9]  != ' ' ||
+            p_cmdBuffer[12] != '/' || p_cmdBuffer[15] != '/'||
+            p_cmdBuffer[18] != ']')
+    {
+     // Send a warning to the UART and exit immediately; do not proceed further.
+        UART1_SendString("Error: Wrong Format! Please use [HH:MM:SS DD/MM/YY]\r\n");
+        return;
+    }
+
+    // --- STEP 2: EXTRACT DATA FROM THE p_cmdBuffer CURSOR ---
+    /* get hour from p_cmdBuffer */
+    time_c.hour[0] = p_cmdBuffer[1];
+    time_c.hour[1] = p_cmdBuffer[2];
+    time_n.hour = (uint8_t)character_to_number(time_c.hour, 2);
+
+    /* get minute from p_cmdBuffer */
+    time_c.minute[0] = p_cmdBuffer[4];
+    time_c.minute[1] = p_cmdBuffer[5];
+    time_n.minute = (uint8_t)character_to_number(time_c.minute, 2);
+
+    /* get second from p_cmdBuffer */
+    time_c.second[0] = p_cmdBuffer[7];
+    time_c.second[1] = p_cmdBuffer[8];
+    time_n.second = (uint8_t)character_to_number(time_c.second, 2);
+
+    /* get day from p_cmdBuffer */
+    date_c.day[0] = p_cmdBuffer[10];
+    date_c.day[1] = p_cmdBuffer[11];
+    date_n.day = (uint8_t)character_to_number(date_c.day, 2);
+
+    /* get month from p_cmdBuffer */
+    date_c.month[0] = p_cmdBuffer[13];
+    date_c.month[1] = p_cmdBuffer[14];
+    date_n.month = (uint8_t)character_to_number(date_c.month, 2);
+
+    /* get year from p_cmdBuffer */
+    date_c.year[0] = p_cmdBuffer[16];
+    date_c.year[1] = p_cmdBuffer[17];
+    date_n.year = (uint8_t)character_to_number(date_c.year, 2);
+
+    // ---  CHECK STANDRT TIME ---
+    if (time_n.hour >= 24 || time_n.minute >= 60 || time_n.second >= 60 ||
+            date_n.day < 1   || date_n.day > 31    ||
+            date_n.month < 1 || date_n.month > 12)
+    {
+    // --- STEP 3: CHECK THE LOGICAL CONDITIONS OF THE NUMBER (Time Validity) ---
+        UART1_SendString("Error: Invalid Time or Date value!\r\n");
+        return;
+    }
+    // SET RTC and update time
+    DS3231_Set_Time(time_n.hour, time_n.minute, time_n.second);
+    DS3231_Set_Day(date_n.day, date_n.month, date_n.year);
+
+    // --- STEP 3: CHECK THE LOGICAL CONDITIONS OF THE NUMBER (Time Validity) ---
+
+    if (g_IsTimeSynced == 0)
+    {
+        g_IsTimeSynced = 1;
+        g_ScreenChangedFlag = 1;
+    }
+
+    UART1_SendString("Update RTC Success!\r\n");
+}
+
+void Update_RingBuffer_From_DMA(uint8_t *str_Ring,uint8_t *str_dma)
+{
+    uint16_t current_dma_pos = DMA_BUF_SIZE - (uint16_t)DMA_CNDTR5;
+
+    while (last_dma_pos != current_dma_pos)
+    {
+        // coppy  buffer DMA v┐o Ring Buffer
+        str_Ring[index_In] = str_dma[last_dma_pos];
+        index_In++;
+        if (index_In >= RING_BUF_SIZE) index_In = 0;
+
+        last_dma_pos++;
+        if (last_dma_pos >= DMA_BUF_SIZE) last_dma_pos = 0;
+    }
+}
+
+
+
+---------- Driver/USB.c ----------
+#include"USB.h"
+#include"EXTI.h"
+
+void USB_Init(void){
+	//Enable interupt mask 
+
+	USB->CNTR.WORD = 0xBF00;
+	// force  reset
+	USB->CNTR.BITS.FRES = 0x01;
+	USB->CNTR.BITS.FRES = 0x00;
+	NVIC_USB_En();
+}
+void USB_ResetCallBack(void){
+}
+void USB_TransactionCallBack(void){
+}
+void USB_LP_CAN1_RX0_IRQHandler(void)
+{
+    if (USB->ISTR.BITS.RESET != RESET) 
+    {
+        USB_ResetCallBack();
+    }
+
+    if (USB->ISTR.BITS.CTR != RESET)
+    {
+        USB_TransactionCallBack();
+    }
+
+    if (USB->ISTR.BITS.ERR != RESET)
+    {
+        USB->ISTR.BITS.ERR = 0;
+    }
+
+    if (USB->ISTR.BITS.SOF != RESET)
+    {
+        USB->ISTR.BITS.SOF = 0;
+    }
+
+    if (USB->ISTR.BITS.ESOF != RESET)
+    {
+        USB->ISTR.BITS.ESOF = 0;
+    }
+
+    if (USB->ISTR.BITS.SUSP != RESET)
+    {
+        USB->ISTR.BITS.SUSP = 0;
+    }
+}
+---------- Driver/ADC.h ----------
+#ifndef __ADC_H
+#define __ADC_H
+#include<stdint.h>
+   /*-----------------ADD BASE ADC 1--------------------*/
+#define ADC01_BASE         0x40012400UL
+
+   /*-----------------ADD REGISTER OFSET --------------------*/
+#define  ADD_ADC_SR           0x00
+#define  ADD_ADC_CR1          0x04
+#define  ADD_ADC_CR2          0x08 
+#define  ADD_ADC_SMPR1        0x0C
+#define  ADD_ADC_SMPR2        0x10
+#define  ADD_ADC_JOFR1	      0x04
+#define  ADD_ADC_JOFR2        0x08
+#define  ADD_ADC_JOFR3        0x1C
+#define  ADD_ADC_JOFR4        0x20
+#define  ADD_ADC_HTR          0x24
+#define  ADD_ADC_LTR          0x28
+#define  ADD_ADC_SQR1         0x2C
+#define  ADD_ADC_SQR2         0x30
+#define  ADD_ADC_SQR3         0x34
+#define  ADD_ADC_JSQR 		    0x38
+#define  ADD_ADC_JDR1         0x3C  
+#define  ADD_ADC_JDR2         0x40
+#define  ADD_ADC_JDR3         0x44
+#define  ADD_ADC_JDR4         0x48
+#define  ADD_ADC_DR   				0x4C 
+
+/*-----------------ADC1--------------------*/
+
+#define  ADC_SR      (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SR   ))          
+#define  ADC_CR1     (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_CR1  ))
+#define  ADC_CR2     (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_CR2  ))
+#define  ADC_SMPR1   (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SMPR1))
+#define  ADC_SMPR2   (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SMPR2))
+#define  ADC_JOFR1	 (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JOFR1))
+#define  ADC_JOFR2   (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JOFR2))
+#define  ADC_JOFR3   (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JOFR3))
+#define  ADC_JOFR4   (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JOFR4))
+#define  ADC_HTR     (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_HTR  ))
+#define  ADC_LTR     (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_LTR  ))
+#define  ADC_SQR1    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SQR1 ))
+#define  ADC_SQR2    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SQR2 ))
+#define  ADC_SQR3    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_SQR3 ))
+#define  ADC_JSQR 	 (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JSQR ))
+#define  ADC_JDR1    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JDR1 )) 
+#define  ADC_JDR2    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JDR2 ))
+#define  ADC_JDR3    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JDR3 ))
+#define  ADC_JDR4    (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_JDR4 ))
+#define  ADC_DR   	 (*(volatile uint32_t*)(ADC01_BASE +  ADD_ADC_DR   ))
+
+void ADC01_CH01_Init(void);
+uint16_t ADC01_CH0_Read(void);
+
+
+#endif
+
+
+
+
+---------- Driver/AFIO.h ----------
+#ifndef __AFAO_H
+#define __AFAO_H
+
+
+#include <stdint.h>
+
+typedef struct
+{
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            uint32_t PIN: 4;
+            uint32_t PORT: 3;
+            uint32_t EVOE: 1;
+            uint32_t Resever: 24;
+        } BIST;
+    } EVCR;
+
+    uint32_t MAPR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            uint32_t EXTI0: 4;
+            uint32_t EXTI1: 4;
+            uint32_t EXTI2: 4;
+            uint32_t EXTI3: 4;
+            uint32_t reserver: 16;
+        } BIST;
+    } EXTICR1;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            uint32_t EXTI0: 4;
+            uint32_t EXTI1: 4;
+            uint32_t EXTI2: 4;
+            uint32_t EXTI3: 4;
+            uint32_t reserver: 16;
+        } BIST;
+    } EXTICR2;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            uint32_t EXTI0: 4;
+            uint32_t EXTI1: 4;
+            uint32_t EXTI2: 4;
+            uint32_t EXTI3: 4;
+            uint32_t reserver: 16;
+        } BIST;
+    } EXTICR3;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            uint32_t EXTI0: 4;
+            uint32_t EXTI1: 4;
+            uint32_t EXTI2: 4;
+            uint32_t EXTI3: 4;
+            uint32_t reserver: 16;
+        } BIST;
+    } EXTICR4;
+
+    uint32_t MAPR2;
+
+
+} AFIO_Typedef;
+
+
+
+#define AFIO     ((volatile AFIO_Typedef*)0x40010000UL)
+#endif
+
+---------- Driver/BUTTON.h ----------
+#ifndef __BUTTON_H
+#define __BUTTON_H
+#include <stdint.h>
+#include "main.h"
+
+
+void Button_Task(void);
+#endif
+
+---------- Driver/DMA.h ----------
+#ifndef __DMA_H
+#define __DMA_H
+#include <stdint.h>
+/*-----------ADD_BASE------------------------*/
+
+#define DMA1_BASE        0x40020000UL
+/*-----------ADD_offet--------*/
+#define DMA_CCR5_ADDR       (DMA1_BASE + 0x058)
+#define DMA_CNDTR5_ADDR     (DMA1_BASE + 0x05C)
+#define DMA_CPAR5_ADDR      (DMA1_BASE + 0x060)
+#define DMA_CMAR5_ADDR      (DMA1_BASE + 0x064)
+#define DMA1_ISR_ADDR       (DMA1_BASE + 0x000)
+#define DMA1_IFCR_ADDR       (DMA1_BASE +0x004)
+/*-----------------DMACR5--------------------*/
+
+#define DMA_CCR5            (*(volatile uint32_t*)(DMA_CCR5_ADDR))
+#define DMA_CNDTR5          (*(volatile uint32_t*)(DMA_CNDTR5_ADDR))
+#define DMA_CPAR5           (*(volatile uint32_t*)(DMA_CPAR5_ADDR))
+#define DMA_CMAR5           (*(volatile uint32_t*)(DMA_CMAR5_ADDR))
+#define DMA1_ISR          	(*(volatile uint32_t*)(DMA1_ISR_ADDR))
+#define DMA1_IFCR           (*(volatile uint32_t*)(DMA1_IFCR_ADDR))
+
+
+void DAM1_UART_Init(uint8_t * buffer, uint16_t size);
+void DMA1_Reset(uint16_t size);
+
+
+#endif
+
+---------- Driver/EXTI.h ----------
+#ifndef __EXTI_H
+#define __EXTI_H
+
+#include<stdint.h>
+#include"TYPE.h"
+#include"main.h"
+#include "GPIO.h"//GPIO_Typedef
+
+
+#define NVIC_ISER1 *((uint32_t*)(0xE000E104UL))
+#define NVIC_ISER0 *((uint32_t*)(0xE000E100UL))
+
+
+
+#define EXTI_RISING_MODE 0x00
+#define EXTI_FALLING_MODE 0x01
+#define EXTI_BOTH_MODE 0x02
+typedef struct
+{
+    __32BIT IMR;
+    __32BIT EMR;
+    __32BIT RTSR;
+    __32BIT FTSR;
+    __32BIT SWIER;
+    __32BIT PR;
+} EXTI_Typedef;
+
+
+void EXIT0_Init(void);
+void EXTI1_Init(void);
+//void EXIT_Init(uint16_t GPIO_Pin, GPIOx_Typef *Port, uint8_t type);
+void EXIT_Config_Expert(GPIO_Typedef *port, uint8_t gpio_pin,uint8_t type);
+uint8_t get_Pin_Number(uint16_t gpio_pin);
+void EXTI0_IRQHandler(void);
+void EXTI1_IRQHandler(void);
+void RCC_Enable_AFIO(void);
+void NVIC_Enable_EXTI(uint8_t pin);
+void NVIC_UART_En(void);
+void NVIC_USB_En(void);
+
+void NVIC_DMA1_En(void);
+//#define EXTI ((volatile EXTI_Typedef *) 0x40010400UL)
+#define EXTI  ((volatile EXTI_Typedef*)0x40010400UL)
+#endif
+
+
+
+
+---------- Driver/GPIO.h ----------
+
+
+//===========================
+#ifndef __CPIO_H
+#define __CPIO_H
+#include <stdint.h>
+
+//GPIO PIN
+#define GPIO_PIN_0   	   ((uint16_t)0x0001)  
+#define GPIO_PIN_1   	   ((uint16_t)0x0002)  
+#define GPIO_PIN_2   	   ((uint16_t)0x0004)  
+#define GPIO_PIN_3   	   ((uint16_t)0x0008)  
+#define GPIO_PIN_4   	   ((uint16_t)0x0010)  
+#define GPIO_PIN_5   	   ((uint16_t)0x0020)  
+#define GPIO_PIN_6   	   ((uint16_t)0x0040)  
+#define GPIO_PIN_7   	   ((uint16_t)0x0080)  
+#define GPIO_PIN_8   	   ((uint16_t)0x0100)  
+#define GPIO_PIN_9   	   ((uint16_t)0x0200)  
+#define GPIO_PIN_10   	 ((uint16_t)0x0400)  
+#define GPIO_PIN_11   	 ((uint16_t)0x0800)  
+#define GPIO_PIN_12   	 ((uint16_t)0x1000)  
+#define GPIO_PIN_13   	 ((uint16_t)0x2000)  
+#define GPIO_PIN_14   	 ((uint16_t)0x4000)  
+#define GPIO_PIN_15   	 ((uint16_t)0x8000)   
+
+//GPIO MODE
+#define GPIO_MODE_INPUT_FLOATING  0x00
+#define GPIO_MODE_OUTPUT_PP 			0x01
+#define GPIO_MODE_OUTPUT_OD 			0x02
+#define GPIO_MODE_AF_PP     			0x03
+#define GPIO_MODE_AF_OD     			0x04
+#define GPIO_MODE_INPUT_ANALOG    0x05
+#define GPIO_MODE_INPUT_PU    		0x06
+#define GPIO_MODE_INPUT_PD    		0x07
+
+typedef struct{
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t MODE0:2;
+			uint32_t CNF0 :2;
+			uint32_t MODE1:2;
+			uint32_t CNF1 :2;
+			uint32_t MODE2:2;
+			uint32_t CNF2 :2;
+			uint32_t MODE3:2;
+			uint32_t CNF3 :2;
+			uint32_t MODE4:2;
+			uint32_t CNF4 :2;
+			uint32_t MODE5:2;
+			uint32_t CNF5 :2;
+			uint32_t MODE6:2;
+			uint32_t CNF6 :2;
+			uint32_t MODE7:2;
+			uint32_t CNF7 :2;
+		}BITS;
+	}CRL;
+	
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t MODE8:2;
+			uint32_t CNF8 :2;
+			uint32_t MODE9:2;
+			uint32_t CNF9 :2;
+			uint32_t MODE10:2;
+			uint32_t CNF10 :2;
+			uint32_t MODE11:2;
+			uint32_t CNF11 :2;
+			uint32_t MODE12:2;
+			uint32_t CNF12 :2;
+			uint32_t MODE13:2;
+			uint32_t CNF13 :2;
+			uint32_t MODE14:2;
+			uint32_t CNF14 :2;
+			uint32_t MODE15:2;
+			uint32_t CNF15 :2;
+		}BITS;
+	}CRH;
+	
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t IDR0:1;
+			uint32_t IDR1:1;
+			uint32_t IDR2:1;
+			uint32_t IDR3:1;
+			uint32_t IDR4:1;
+			uint32_t IDR5:1;
+			uint32_t IDR6:1;
+			uint32_t IDR7:1;
+			uint32_t IDR8:1;
+			uint32_t IDR9:1;
+			uint32_t IDR10:1;
+			uint32_t IDR11:1;
+			uint32_t IDR12:1;
+			uint32_t IDR13:1;
+			uint32_t IDR14:1;
+			uint32_t IDR15:1;
+			uint32_t Reserved: 16;
+		}BITS;
+	}IDR;
+	
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t ODR0:1;
+			uint32_t ODR1:1;
+			uint32_t ODR2:1;
+			uint32_t ODR3:1;
+			uint32_t ODR4:1;
+			uint32_t ODR5:1;
+			uint32_t ODR6:1;
+			uint32_t ODR7:1;
+			uint32_t ODR8:1;
+			uint32_t ODR9:1;
+			uint32_t ODR10:1;
+			uint32_t ODR11:1;
+			uint32_t ODR12:1;
+			uint32_t ODR13:1;
+			uint32_t ODR14:1;
+			uint32_t ODR15:1;
+			uint32_t Reserved: 16;
+		}BITS;
+	}ODR;
+	
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t BSR0:1;
+			uint32_t BSR1:1;
+			uint32_t BSR2:1;
+			uint32_t BSR3:1;
+			uint32_t BSR4:1;
+			uint32_t BSR5:1;
+			uint32_t BSR6:1;
+			uint32_t BSR7:1;
+			uint32_t BSR8:1;
+			uint32_t BSR9:1;
+			uint32_t BSR10:1;
+			uint32_t BSR11:1;
+			uint32_t BSR12:1;
+			uint32_t BSR13:1;
+			uint32_t BSR14:1;
+			uint32_t BSR15:1;
+			uint32_t BR0:1;
+			uint32_t BR1:1;
+			uint32_t BR2:1;
+			uint32_t BR3:1;
+			uint32_t BR4:1;
+			uint32_t BR5:1;
+			uint32_t BR6:1;
+			uint32_t BR7:1;
+			uint32_t BR8:1;
+			uint32_t BR9:1;
+			uint32_t BR10:1;
+			uint32_t BR11:1;
+			uint32_t BR12:1;
+			uint32_t BR13:1;
+			uint32_t BR14:1;
+			uint32_t BR15:1;
+		}BITS;
+	}BSRR;
+	
+	union{
+		uint32_t REG;
+		struct{
+			uint32_t BR0:1;
+			uint32_t BR1:1;
+			uint32_t BR2:1;
+			uint32_t BR3:1;
+			uint32_t BR4:1;
+			uint32_t BR5:1;
+			uint32_t BR6:1;
+			uint32_t BR7:1;
+			uint32_t BR8:1;
+			uint32_t BR9:1;
+			uint32_t BR10:1;
+			uint32_t BR11:1;
+			uint32_t BR12:1;
+			uint32_t BR13:1;
+			uint32_t BR14:1;
+			uint32_t BR15:1;
+			uint32_t Reserved: 16;
+		}BITS;
+	}BRR;
+	
+		union{
+		uint32_t REG;
+		struct{
+			uint32_t LCK0:1;
+			uint32_t LCK1:1;
+			uint32_t LCK2:1;
+			uint32_t LCK3:1;
+			uint32_t LCK4:1;
+			uint32_t LCK5:1;
+			uint32_t LCK6:1;
+			uint32_t LCK7:1;
+			uint32_t LCK8:1;
+			uint32_t LCK9:1;
+			uint32_t LCK10:1;
+			uint32_t LCK11:1;
+			uint32_t LCK12:1;
+			uint32_t LCK13:1;
+			uint32_t LCK14:1;
+			uint32_t LCK15:1;
+			uint32_t LCKK:1;
+			uint32_t Reserved: 15;
+		}BITS;
+	}LCKR;
+	
+}GPIO_Typedef;
+
+
+#define GPIOA  ((volatile GPIO_Typedef*)(0x40010800UL))
+#define GPIOB  ((volatile GPIO_Typedef*)(0x40010C00UL))
+#define GPIOC  ((volatile GPIO_Typedef*)(0x40011000UL))
+
+//default: SPEED: 50Mhz
+void GPIO_Config(volatile GPIO_Typedef *GPIOx, uint16_t pin, uint32_t mode);
+void GPIO_Write_Pin(volatile GPIO_Typedef *GPIOx, uint16_t pin, uint8_t state);
+uint8_t GPIO_Read_Pin(volatile GPIO_Typedef *GPIOx, uint16_t pin);
+#endif
+
+
+---------- Driver/I2C.h ----------
+#ifndef __I2C_H
+#define __I2C_H
+#include <stdint.h>
+
+#define I2C1_BASE   0x40005400
+
+
+#define I2C_CR1     0x00
+#define I2C_CR2     0x04
+#define I2C_OAR1    0x08
+#define I2C_OAR2    0x0C
+#define I2C_DR      0x10
+#define I2C_SR1     0x14
+#define I2C_SR2     0x18
+#define I2C_CCR     0x1C
+#define I2C_TRISE   0x20
+
+
+#define   I2C1_CR1     *((volatile  uint32_t*)(I2C1_BASE +  I2C_CR1))
+#define   I2C1_CR2     *((volatile  uint32_t*)(I2C1_BASE +  I2C_CR2))
+#define   I2C1_OAR1    *((volatile  uint32_t*)(I2C1_BASE +  I2C_OAR1))
+#define   I2C1_OAR2    *((volatile  uint32_t*)(I2C1_BASE +  I2C_OAR2))
+#define   I2C1_DR      *((volatile  uint32_t*)(I2C1_BASE +  I2C_DR))
+#define   I2C1_SR1     *((volatile  uint32_t*)(I2C1_BASE +  I2C_SR1))
+#define   I2C1_SR2     *((volatile  uint32_t*)(I2C1_BASE +  I2C_SR2))
+#define   I2C1_CCR     *((volatile  uint32_t*)(I2C1_BASE +  I2C_CCR))
+#define   I2C1_TRISE   *((volatile  uint32_t*)(I2C1_BASE +  I2C_TRISE))
+
+
+void 	I2C_Init(void);
+void  I2C_Start(void);
+void  I2C_Stop(void);
+void  I2C_Send_Addr(uint8_t addr, uint8_t rw);
+uint8_t I2C_Send_Data(uint8_t data);
+uint8_t I2C_Read_Data(uint8_t ack);
+
+
+
+
+
+#endif
+
+
+---------- Driver/RCC.h ----------
+#ifndef __RCC_H
+#define __RCC_H
+#include <stdint.h>
+
+//-------------------------------------STRUCT----------------------------------------
+typedef struct
+{
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t HSION     : 1;
+            volatile uint32_t HSIRDY    : 1;
+            volatile  uint32_t Reserved1 : 1;
+            volatile  uint32_t HSITRIM   : 5;
+            volatile  uint32_t HSICAL    : 8;
+            volatile  uint32_t HSEON     : 1;
+            volatile  uint32_t HSERDY    : 1;
+            volatile  uint32_t HSEBYP    : 1;
+            volatile  uint32_t CSSON     : 1;
+            volatile  uint32_t Reserved2 : 4;
+            volatile  uint32_t PLLON     : 1;
+            volatile  uint32_t PLLRDY    : 1;
+            volatile  uint32_t PLL2      : 1;
+            volatile  uint32_t PLL2RDY   : 1;
+            volatile  uint32_t PLL3      : 1;
+            volatile  uint32_t PLL3RDY   : 1;
+            volatile  uint32_t Reserved3 : 2;
+        } BITS;
+    } CR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile  uint32_t SW        : 2;
+            volatile  uint32_t SWS       : 2;
+            volatile  uint32_t HPRE      : 4;
+            volatile  uint32_t PPRE1     : 3;
+            volatile  uint32_t PPRE2     : 3;
+            volatile  uint32_t ADCPRE    : 2;
+            volatile  uint32_t PLLSRC    : 1;
+            volatile  uint32_t PLLXTPRE  : 1;
+            volatile  uint32_t PLLMUL    : 4;
+            volatile  uint32_t USBPRE    : 1;
+            volatile  uint32_t Reserved1 : 1;
+            volatile  uint32_t MCO       : 4;
+            volatile  uint32_t Reserved2 : 4;
+        } BITS;
+    } CFGR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t LSIRDYF   : 1;
+            volatile uint32_t LSERDYF   : 1;
+            volatile uint32_t HSIRDYF   : 1;
+            volatile uint32_t HSERDYF   : 1;
+            volatile uint32_t PLLRDYF   : 1;
+            volatile uint32_t PLL2RDYF	 : 1;
+            volatile uint32_t PLL3RDYF	 : 1;
+            volatile uint32_t CSSF      : 1;
+            volatile uint32_t LSIRDYIE  : 1;
+            volatile uint32_t LSERDYIE  : 1;
+            volatile uint32_t HSIRDYIE  : 1;
+            volatile uint32_t HSERDYIE  : 1;
+            volatile uint32_t PLLRDYIE  : 1;
+            volatile uint32_t PLL2RDYIE  : 1;
+            volatile uint32_t PLL3RDYIE  : 1;
+            volatile uint32_t Reserved2 : 1;
+            volatile uint32_t LSIRDYC   : 1;
+            volatile uint32_t LSERDYC   : 1;
+            volatile uint32_t HSIRDYC   : 1;
+            volatile uint32_t HSERDYC   : 1;
+            volatile uint32_t PLLRDYC   : 1;
+            volatile uint32_t PLL2RDYC   : 1;
+            volatile uint32_t PLL3RDYC   : 1;
+            volatile uint32_t CSSC      : 1;
+            volatile uint32_t Reserved4 : 8;
+        } BITS;
+    } CIR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t AFIORST   : 1;
+            volatile uint32_t Reserved1 : 1;
+            volatile uint32_t IOPARST   : 1;
+            volatile uint32_t IOPBRST   : 1;
+            volatile uint32_t IOPCRST   : 1;
+            volatile uint32_t IOPDRST   : 1;
+            volatile uint32_t IOPERST   : 1;
+            volatile uint32_t Reserved2 : 2;
+            volatile uint32_t ADC1RST   : 1;
+            volatile uint32_t ADC2RST   : 1;
+            volatile uint32_t TIM1RST   : 1;
+            volatile uint32_t SPI1RST   : 1;
+            volatile uint32_t Reserved3 : 1;
+            volatile uint32_t USART1RST : 1;
+            volatile uint32_t Reserved4 : 17;
+        } BITS;
+    } APB2RSTR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t TIM2RST  : 1;
+            volatile uint32_t TIM3RST  : 1;
+            volatile uint32_t TIM4RST  : 1;
+            volatile uint32_t TIM5RST  : 1;
+            volatile uint32_t TIM6RST  : 1;
+            volatile uint32_t TIM7RST  : 1;
+            volatile uint32_t Reserved1: 5;
+            volatile uint32_t WWDGRST  : 1;
+            volatile uint32_t Reserved2: 2;
+            volatile uint32_t SPI2RST  : 1;
+            volatile uint32_t SPI3RST  : 1;
+            volatile uint32_t Reserved3: 1;
+            volatile uint32_t USART2RST: 1;
+            volatile uint32_t USART3RST: 1;
+            volatile uint32_t UART4RST : 1;
+            volatile uint32_t UART5RST : 1;
+            volatile uint32_t I2C1RST  : 1;
+            volatile uint32_t I2C2RST  : 1;
+            volatile uint32_t Reserved4: 2;
+            volatile uint32_t CAN1RST  : 1;
+            volatile uint32_t CAN2RST  : 1;
+            volatile uint32_t BKPRST   : 1;
+            volatile uint32_t PWRRST   : 1;
+            volatile uint32_t DACRST   : 1;
+            volatile uint32_t Reserved5: 2;
+        } BITS;
+    } APB1RSTR;
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t DMA1EN   : 1;
+            volatile uint32_t DMA2EN   : 1;
+            volatile uint32_t SRAMEN   : 1;
+            volatile uint32_t Reserved1: 1;
+            volatile uint32_t FLITFEN  : 1;
+            volatile uint32_t Reserved2: 1;
+            volatile uint32_t CRCEN    : 1;
+            volatile uint32_t Reserved3: 1;
+            volatile uint32_t FSMCEN   : 1;
+            volatile uint32_t Reserved4: 1;
+            volatile uint32_t SDIOEN   : 1;
+            volatile uint32_t Reserved5: 21;
+        } BITS;
+    } RCC_AHBENR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t AFIOEN    : 1;
+            volatile uint32_t Reserved1 : 1;
+            volatile uint32_t IOPAEN    : 1;
+            volatile uint32_t IOPBEN    : 1;
+            volatile uint32_t IOPCEN    : 1;
+            volatile uint32_t IOPDEN    : 1;
+            volatile uint32_t IOPEEN    : 1;
+            volatile uint32_t IOPFEN    : 1;
+            volatile uint32_t IOPGEN    : 1;
+            volatile uint32_t ADC1EN    : 1;
+            volatile uint32_t ADC2EN    : 1;
+            volatile uint32_t TIM1EN    : 1;
+            volatile uint32_t SPI1EN    : 1;
+            volatile uint32_t TIM8EN    : 1;
+            volatile uint32_t USART1EN  : 1;
+            volatile uint32_t ADC3EN    : 1;
+            volatile uint32_t Reserved3 : 3;
+            volatile uint32_t TIM9EN    : 1;
+            volatile uint32_t TIM10EN   : 1;
+            volatile uint32_t TIM11EN   : 1;
+            volatile uint32_t Reserved4 : 10;
+        } BITS;
+    } APB2ENR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t TIM2EN    : 1;
+            volatile uint32_t TIM3EN    : 1;
+            volatile uint32_t TIM4EN    : 1;
+            volatile uint32_t TIM5EN    : 1;
+            volatile uint32_t TIM6EN    : 1;
+            volatile uint32_t TIM7EN    : 1;
+            volatile uint32_t TIM12EN    : 1;
+            volatile uint32_t TIM13EN    : 1;
+            volatile uint32_t TIM14EN    : 1;
+            volatile uint32_t Reserved1 : 2;
+            volatile uint32_t WWDGEN    : 1;
+            volatile uint32_t Reserved2 : 2;
+            volatile uint32_t SPI2EN    : 1;
+            volatile uint32_t SPI3EN    : 1;
+            volatile uint32_t Reserved3 : 1;
+            volatile uint32_t USART2EN  : 1;
+            volatile uint32_t USART3EN  : 1;
+            volatile uint32_t UART4EN   : 1;
+            volatile uint32_t UART5EN   : 1;
+            volatile uint32_t I2C1EN    : 1;
+            volatile uint32_t I2C2EN    : 1;
+            volatile uint32_t USBEN     : 1;
+            volatile uint32_t Reserved4 : 1;
+            volatile uint32_t CANEN : 1;
+            volatile uint32_t Reserved5 : 1;
+            volatile uint32_t BKPEN : 1;
+            volatile uint32_t PWREN : 1;
+            volatile uint32_t DACEN : 1;
+            volatile uint32_t Reserved6 : 2;
+        } BITS;
+    } APB1ENR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t LSEON     : 1;
+            volatile uint32_t LSERDY    : 1;
+            volatile uint32_t LSEBYP    : 1;
+            volatile uint32_t Reserved1 : 5;
+            volatile uint32_t RTCSEL    : 2;
+            volatile uint32_t Reserved2 : 5;
+            volatile uint32_t RTCEN     : 1;
+            volatile uint32_t BDRST     : 1;
+            volatile uint32_t Reserved3 : 15;
+        } BITS;
+    } RCC_BDCR;
+
+    union
+    {
+        uint32_t REG;
+        struct
+        {
+            volatile uint32_t LSION     : 1;
+            volatile uint32_t LSIRDY    : 1;
+            volatile uint32_t Reserved1 : 22;
+            volatile uint32_t RMVF      : 1;
+            volatile uint32_t Reserved2 : 1;
+            volatile uint32_t PINRSTF   : 1;
+            volatile uint32_t PORRSTF   : 1;
+            volatile uint32_t SFTRSTF   : 1;
+            volatile uint32_t IWDGRSTF  : 1;
+            volatile uint32_t WWDGRSTF  : 1;
+            volatile uint32_t LPWRRSTF  : 1;
+        } BITS;
+    } RCC_CSR;
+
+} RCC_TypeDef;
+
+typedef union
+{
+    uint32_t REG;
+    struct
+    {
+        volatile uint32_t LATENCY:3;
+        volatile uint32_t HLFCYA :1;
+        volatile uint32_t PRFTBE :1;
+        volatile uint32_t PRFTBS :1;
+        volatile uint32_t Res    :26;
+    } BITS;
+} FLASH_ACR;
+
+
+#define ADDRESS_RCC         0x40021000UL
+#define ADDRESS_FLASH_ACR   0x40022000UL
+
+#define RCC 					((volatile RCC_TypeDef*)ADDRESS_RCC)
+#define ACR 					((volatile FLASH_ACR*)ADDRESS_FLASH_ACR)
+
+void RCC_Config_72Mhz(void);
+
+void RCC_Enable_PortA(void);
+void RCC_Enable_PortB(void);
+void RCC_Enable_PortC(void);
+void RCC_Enable_TIM2(void);
+void RCC_Enable_AFIO(void);
+void RCC_Enable_ADC01(void);
+void RCC_Enable_UART1(void);
+void RCC_Enable_SPI1(void);
+void RCC_Enable_I2C1(void);
+void RCC_Enable_USB(void);
+void RCC_Enable_I2C1(void);
+void RCC_Enable_DMA1(void);
+void RCC_Enable_TIM3(void);
+#endif
+
+---------- Driver/SPI.h ----------
+
+#ifndef __SPI_H
+#define __SPI_H
+#include <stdint.h>
+#include "GPIO.h"
+
+#define PORT_SCK       GPIOA
+#define PORT_MISO      GPIOA
+#define PORT_MOSI      GPIOA
+#define PORT_CS		   GPIOB
+
+#define PIN_SCK        GPIO_PIN_5
+#define PIN_MISO       GPIO_PIN_6
+#define PIN_MOSI       GPIO_PIN_7
+#define PIN_CS	       GPIO_PIN_0
+
+
+#define SPI1_BASE_ADDR         0x40013000
+
+
+#define SPI_CR1_OFFSET		    0x00
+#define SPI_CR2_OFFSET		    0x04
+#define SPI_SR_OFFSET		    0x08
+#define SPI_DR_OFFSET		    0x0C
+#define SPI_CRCPR_OFFSET		0x10
+#define SPI_RXCRCR_OFFSET		0x14
+#define SPI_TXCRCR_OFFSET		0x18
+#define SPI_I2SCFGR_OFFSET      0x1C
+#define SPI_I2SPR_OFFSET		0x20
+
+#define SPI1_CR1    *((volatile uint32_t* )(SPI1_BASE_ADDR + SPI_CR1_OFFSET))
+#define SPI1_CR2    *((volatile uint32_t* )(SPI1_BASE_ADDR + SPI_CR2_OFFSET))
+#define SPI1_SR     *((volatile uint32_t* )(SPI1_BASE_ADDR + SPI_SR_OFFSET))
+#define SPI1_DR     *((volatile uint32_t* )(SPI1_BASE_ADDR + SPI_DR_OFFSET))
+
+
+
+void SPI1_Init_Master(void);
+void SPI1_Send(uint8_t data);
+
+
+#endif
+
+---------- Driver/String.h ----------
+#ifndef __STRING_H
+#define __STRING_H
+#include <stdint.h>
+
+uint16_t character_to_number(uint8_t data[], uint8_t index);
+void number_to_character_t(uint8_t value, uint8_t data[], uint8_t index);
+
+void Send_Time_To_PC(uint8_t h, uint8_t m, uint8_t s, uint8_t d, uint8_t month, uint8_t y);
+#endif
+
+---------- Driver/TYPE.h ----------
+#ifndef __TYPE_H 
+#define __TYPE_H 
+
+#include<stdint.h>
+
+typedef union{
+   uint32_t REG ;
+struct
+{  
+			uint32_t BIT0   :1;
+			uint32_t BIT1	:1;
+			uint32_t BIT2	:1;
+			uint32_t BIT3	:1;
+			uint32_t BIT4	:1;
+			uint32_t BIT5	:1;
+			uint32_t BIT6	:1;
+			uint32_t BIT7	:1;
+			uint32_t BIT8	:1;
+			uint32_t BIT9	:1;
+			uint32_t BIT10  :1;
+			uint32_t BIT11  :1;
+			uint32_t BIT12  :1;
+			uint32_t BIT13  :1;
+			uint32_t BIT14  :1;
+			uint32_t BIT15  :1;
+			uint32_t BIT16  :1;
+			uint32_t BIT17  :1;
+			uint32_t BIT18  :1;
+			uint32_t BIT19  :1;
+			uint32_t BIT20  :1;
+			uint32_t BIT21  :1;
+			uint32_t BIT22  :1;
+			uint32_t BIT23  :1;
+			uint32_t BIT24  :1;
+			uint32_t BIT25  :1;
+			uint32_t BIT26  :1;
+			uint32_t BIT27  :1;
+			uint32_t BIT28  :1;
+			uint32_t BIT29  :1;
+			uint32_t BIT30  :1;
+			uint32_t BIT31  :1;
+}BITS;
+}__32BIT;
+
+#endif
+
+
+
+
+---------- Driver/Tim.h ----------
+#ifndef __TIM_H
+#define __TIM_H
+#include<stdint.h>
+
+
+#define   TIM2_ADD_BASE  0x40000000UL
+
+#define    TIM2_CR1        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x00))
+#define    TIM2_CR2        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x04))  
+#define    TIM2_SMCR       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x08))  
+#define    TIM2_DIER       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x0C))  
+#define    TIM2_SR         (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x10)) 
+#define    TIM2_EGR        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x14))  
+#define    TIM2_CCMR1      (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x18))  
+#define    TIM2_CCMR2      (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x1C))  
+#define    TIM2_CCER       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x20))  
+#define    TIM2_CNT        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x24))  	
+#define    TIM2_PSC        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x28))
+#define    TIM2_ARR        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x2C))
+#define    TIM2_CCR1       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x34))
+#define    TIM2_CCR2       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x38))
+#define    TIM2_CCR3       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x3C))	
+#define    TIM2_CCR4       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x40))	
+#define    TIM2_DCR        (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x48))
+#define    TIM2_DMAR       (*(volatile uint32_t*)(TIM2_ADD_BASE + 0x4C)) 
+	
+#define TIM3_ADD_BASE  0x40000400UL
+
+#define TIM3_CR1   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x00))
+#define TIM3_CR2   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x04))
+#define TIM3_SMCR  (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x08))
+#define TIM3_DIER  (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x0C))
+#define TIM3_SR    (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x10))
+#define TIM3_EGR   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x14))
+#define TIM3_CNT   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x24))
+#define TIM3_PSC   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x28))
+#define TIM3_ARR   (*(volatile uint32_t*)(TIM3_ADD_BASE + 0x2C))
+
+typedef struct
+{
+	 uint8_t second;
+	 uint8_t minute;
+	 uint8_t hour;
+} Time_number_type;
+static Time_number_type time_n;
+
+typedef struct
+{
+	uint8_t second[2];
+	uint8_t minute[2];
+	uint8_t hour[2];
+} Time_uint8_t_type;
+static  Time_uint8_t_type time_c;
+
+typedef struct 
+{
+	uint8_t day;
+	uint8_t month;
+	uint8_t year;
+} Date_number_type;
+static Date_number_type date_n;                                         
+
+typedef struct 
+{
+	uint8_t day[2];
+	uint8_t month[2];
+	uint8_t year[4];
+} Date_uint8_t_type;
+static  Date_uint8_t_type date_c;
+
+	
+void TIM2_init_IT(void);
+void TIM2_IRQHandler(void); 
+extern volatile uint8_t blink_status;
+void delay_ms(uint32_t ms);
+void TIM3_init_IT(void);
+void TIM3_IRQHandler(void);
+
+#endif
+
+
+
+
+---------- Driver/UART.h ----------
+#ifndef __UART_H
+#define __UART_H
+#include<stdint.h>
+#include"GPIO.h"
+
+
+/*------------ADD_BASE_UART--------*/
+#define UART_ADD_BASE   0x40013800UL   
+
+/*------------ADD_OFFSET_UART--------*/
+#define USART_SR_OFFSET         0x00
+#define USART_DR_OFFSET         0x04
+#define USART_BRR_OFFSET        0x08
+#define USART_CR1_OFFSET        0x0c
+#define USART_CR2_OFFSET        0x10
+#define USART_CR3_OFFSET        0x14
+#define USART_GTPR_OFFSET       0x18
+/*------------UART01--------------*/
+
+#define USART1_SR         (*(volatile uint32_t*)(UART_ADD_BASE  + USART_SR_OFFSET  ))
+#define USART1_DR         (*(volatile uint32_t*)(UART_ADD_BASE  + USART_DR_OFFSET  ))
+#define USART1_BRR        (*(volatile uint32_t*)(UART_ADD_BASE  + USART_BRR_OFFSET ))
+#define USART1_CR1        (*(volatile uint32_t*)(UART_ADD_BASE  + USART_CR1_OFFSET ))
+#define USART1_CR2        (*(volatile uint32_t*)(UART_ADD_BASE  + USART_CR2_OFFSET ))
+#define USART1_CR3        (*(volatile uint32_t*)(UART_ADD_BASE  + USART_CR3_OFFSET ))
+#define USART1_GTP        (*(volatile uint32_t*)(UART_ADD_BASE  + USART_GTPR_OFFSET))
+/*------------------------API--------------*/
+void UART1_Init(void);
+void UART1_SendChar(char c);
+void UART1_SendString(const char *str);
+void USART1_IRQHandler(void);
+void process_CmdBuffer(uint8_t *p_cmdBuffer);  
+void DMA1_Channel5_IRQHandler(void);
+
+void Update_RingBuffer_From_DMA(uint8_t *str_Ring,uint8_t *str_dma);
+uint16_t number_to_character(uint16_t value, uint8_t data[], uint8_t index);
+void CheckRxBuffer( uint8_t *str_Ring, uint8_t *str_Cmd,uint16_t ring_size);
+
+#endif
+
+
+
+---------- Driver/USB.h ----------
+#ifndef __USB_H
+#define __USB_H
+#include <stdint.h>
+//------------------------TYPEDEF---------------------------------------------
+#define __IO   volatile
+typedef enum{
+	RESET = 0,
+	SET = !RESET
+}FlagStatus ;
+
+
+typedef struct {
+    union {
+        __IO uint32_t WORD;
+        struct {
+            __IO uint32_t EA         : 4;
+            __IO uint32_t STAT_TX    : 2;
+            __IO uint32_t DTOG_TX    : 1;
+            __IO uint32_t CTR_TX     : 1;
+            __IO uint32_t EP_KIND    : 1;
+            __IO uint32_t EPTYPE     : 2;
+            __IO uint32_t SETUP      : 1;
+            __IO uint32_t STAT_RX    : 2;
+            __IO uint32_t DTOG_RX    : 1;
+            __IO uint32_t CTR_RX     : 1;
+        } BITS;
+    } EPnRp[8];
+
+    uint32_t                    : 32;   /* 0x20 */
+    uint32_t                    : 32;   /* 0x24 */
+    uint32_t                    : 32;   /* 0x28 */
+    uint32_t                    : 32;   /* 0x2C */
+    uint32_t                    : 32;   /* 0x30 */
+    uint32_t                    : 32;   /* 0x34 */
+    uint32_t                    : 32;   /* 0x38 */
+    uint32_t                    : 32;   /* 0x3C */
+
+    union {
+        __IO uint32_t WORD;
+
+        struct {
+            __IO uint32_t FRES       : 1;
+            __IO uint32_t PDWN       : 1;
+            __IO uint32_t LPMODE     : 1;
+            __IO uint32_t FSUSP      : 1;
+            __IO uint32_t RESUME     : 1;
+            __IO uint32_t            : 3;
+            __IO uint32_t ESOFM      : 1;
+            __IO uint32_t SOFM       : 1;
+            __IO uint32_t RESETM     : 1;
+            __IO uint32_t SUSPM      : 1;
+            __IO uint32_t WKUPM      : 1;
+            __IO uint32_t ERRM       : 1;
+            __IO uint32_t PMAOVRM    : 1;
+            __IO uint32_t CTRM       : 1;
+        } BITS;
+    } CNTR;
+
+    union {
+        __IO uint32_t WORD;
+
+        struct {
+            __IO uint32_t EP_ID      : 4;
+            __IO uint32_t DIR        : 1;
+            __IO uint32_t            : 3;
+            __IO uint32_t ESOF       : 1;
+            __IO uint32_t SOF        : 1;
+            __IO uint32_t RESET      : 1;
+            __IO uint32_t SUSP       : 1;
+            __IO uint32_t WKUP       : 1;
+            __IO uint32_t ERR        : 1;
+            __IO uint32_t PMAOVR     : 1;
+            __IO uint32_t CTR        : 1;
+        } BITS;
+    } ISTR;
+
+    union {
+        __IO uint32_t WORD;
+
+        struct {
+            __IO uint32_t FN         : 11;
+            __IO uint32_t LSOF       : 2;
+            __IO uint32_t LCK        : 1;
+            __IO uint32_t RXDM       : 1;
+            __IO uint32_t RXDP       : 1;
+        } BITS;
+    } FNR;
+
+    union {
+        __IO uint32_t WORD;
+
+        struct
+        {
+            __IO uint32_t ADD        : 7;
+            __IO uint32_t EF         : 1;
+        } BITS;
+    } DADDR;
+
+    __IO uint32_t BTABLE;
+} USB_Typedef;
+
+#define USB_ADD_BASE        0x40005C00
+#define USB                 ((USB_Typedef*)(USB_ADD_BASE))
+void USB_Init(void);
+void USB_LP_CAN1_RX0_IRQHandler(void);
+void USB_ResetCallBack(void);
+void USB_TransactionCallBack(void);
+
+#endif
+
+========== LIB ==========
+
+---------- Lib/DS3231.c ----------
+#include "DS3231.h"
+#include "I2C.h"
+
+
+
+
+
+uint8_t bcd_to_dec(uint8_t bcd)
+{
+    return ((bcd >> 4) * 10 + (bcd & 0x0F));// 10: decimail ex: 4 * 10 * +  5; = 45;
+}
+uint8_t dec_to_bcd(uint8_t dec)
+{
+    return (uint8_t)(((dec/10) << 4) | (dec % 10));   // 45 :  4 | 5
+}
+
+void DS3231_Set_Time(uint8_t hour, uint8_t min, uint8_t sec)
+{
+    uint8_t status = 0;
+    I2C_Start();
+    I2C_Send_Addr(0x68, 0);
+    status = I2C_Send_Data(0x00);
+    if(status)
+    {
+        return ;  //Need check
+    }
+    status = I2C_Send_Data(dec_to_bcd(sec));
+    if(status)
+    {
+        return ;  //Need check
+    }
+    status = I2C_Send_Data(dec_to_bcd(min));
+    if(status)
+    {
+        return ;  //Need check
+    }
+    status = I2C_Send_Data(dec_to_bcd(hour));
+    if(status)
+    {
+        return ;  //Need check
+    }
+
+    I2C_Stop();
+}
+void DS3231_Set_Day(uint8_t day, uint8_t month, uint8_t year)
+{
+    uint8_t status = 0;
+    I2C_Start();
+    I2C_Send_Addr(0x68, 0);
+    status = I2C_Send_Data(0x04);
+    status = I2C_Send_Data(dec_to_bcd(day));
+    if(status)
+    {
+        return ;  //Need check
+    }
+    status = I2C_Send_Data(dec_to_bcd(month));
+    if(status)
+    {
+        return ;  //Need check
+    }
+    status = I2C_Send_Data(dec_to_bcd(year));
+    if(status)
+    {
+        return ;  //Need check
+    }
+    I2C_Stop();
+}
+void DS3231_Get_Time(volatile uint8_t *hour, volatile uint8_t *min, volatile uint8_t *sec)
+{
+    I2C_Start();
+    I2C_Send_Addr(0x68, 0);//  write
+    I2C_Send_Data(0x00);
+
+    I2C_Start();
+    I2C_Send_Addr(0x68, 1);// read
+    *sec = bcd_to_dec(I2C_Read_Data(1));
+    *min = bcd_to_dec(I2C_Read_Data(1));
+    *hour = bcd_to_dec(I2C_Read_Data(0));
+
+}
+
+void DS3231_Get_Day(volatile uint8_t *day, volatile uint8_t *month, volatile uint8_t *year)
+{
+    I2C_Start();
+    I2C_Send_Addr(0x68, 0); //write
+    I2C_Send_Data(0x04);    // register start
+
+    I2C_Start();
+    I2C_Send_Addr(0x68, 1); //read
+    *day = bcd_to_dec(I2C_Read_Data(1));
+    *month = bcd_to_dec(I2C_Read_Data(1));
+    *year = bcd_to_dec(I2C_Read_Data(0));
+}
+
+---------- Lib/FONT.c ----------
+
+#include "FONT.h"
+
+static const uint16_t Font7x10 [] = {
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // sp
+0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x1000, 0x0000, 0x0000,  // !
+0x2800, 0x2800, 0x2800, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // "
+0x2400, 0x2400, 0x7C00, 0x2400, 0x4800, 0x7C00, 0x4800, 0x4800, 0x0000, 0x0000,  // #
+0x3800, 0x5400, 0x5000, 0x3800, 0x1400, 0x5400, 0x5400, 0x3800, 0x1000, 0x0000,  // $
+0x2000, 0x5400, 0x5800, 0x3000, 0x2800, 0x5400, 0x1400, 0x0800, 0x0000, 0x0000,  // %
+0x1000, 0x2800, 0x2800, 0x1000, 0x3400, 0x4800, 0x4800, 0x3400, 0x0000, 0x0000,  // &
+0x1000, 0x1000, 0x1000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // '
+0x0800, 0x1000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x1000, 0x0800,  // (
+0x2000, 0x1000, 0x0800, 0x0800, 0x0800, 0x0800, 0x0800, 0x0800, 0x1000, 0x2000,  // )
+0x1000, 0x3800, 0x1000, 0x2800, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // *
+0x0000, 0x0000, 0x1000, 0x1000, 0x7C00, 0x1000, 0x1000, 0x0000, 0x0000, 0x0000,  // +
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x1000, 0x1000, 0x1000,  // ,
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x3800, 0x0000, 0x0000, 0x0000, 0x0000,  // -
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x1000, 0x0000, 0x0000,  // .
+0x0800, 0x0800, 0x1000, 0x1000, 0x1000, 0x1000, 0x2000, 0x2000, 0x0000, 0x0000,  // /
+0x3800, 0x4400, 0x4400, 0x5400, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // 0
+0x1000, 0x3000, 0x5000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // 1
+0x3800, 0x4400, 0x4400, 0x0400, 0x0800, 0x1000, 0x2000, 0x7C00, 0x0000, 0x0000,  // 2
+0x3800, 0x4400, 0x0400, 0x1800, 0x0400, 0x0400, 0x4400, 0x3800, 0x0000, 0x0000,  // 3
+0x0800, 0x1800, 0x2800, 0x2800, 0x4800, 0x7C00, 0x0800, 0x0800, 0x0000, 0x0000,  // 4
+0x7C00, 0x4000, 0x4000, 0x7800, 0x0400, 0x0400, 0x4400, 0x3800, 0x0000, 0x0000,  // 5
+0x3800, 0x4400, 0x4000, 0x7800, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // 6
+0x7C00, 0x0400, 0x0800, 0x1000, 0x1000, 0x2000, 0x2000, 0x2000, 0x0000, 0x0000,  // 7
+0x3800, 0x4400, 0x4400, 0x3800, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // 8
+0x3800, 0x4400, 0x4400, 0x4400, 0x3C00, 0x0400, 0x4400, 0x3800, 0x0000, 0x0000,  // 9
+0x0000, 0x0000, 0x1000, 0x0000, 0x0000, 0x0000, 0x0000, 0x1000, 0x0000, 0x0000,  // :
+0x0000, 0x0000, 0x0000, 0x1000, 0x0000, 0x0000, 0x0000, 0x1000, 0x1000, 0x1000,  // ;
+0x0000, 0x0000, 0x0C00, 0x3000, 0x4000, 0x3000, 0x0C00, 0x0000, 0x0000, 0x0000,  // <
+0x0000, 0x0000, 0x0000, 0x7C00, 0x0000, 0x7C00, 0x0000, 0x0000, 0x0000, 0x0000,  // =
+0x0000, 0x0000, 0x6000, 0x1800, 0x0400, 0x1800, 0x6000, 0x0000, 0x0000, 0x0000,  // >
+0x3800, 0x4400, 0x0400, 0x0800, 0x1000, 0x1000, 0x0000, 0x1000, 0x0000, 0x0000,  // ?
+0x3800, 0x4400, 0x4C00, 0x5400, 0x5C00, 0x4000, 0x4000, 0x3800, 0x0000, 0x0000,  // @
+0x1000, 0x2800, 0x2800, 0x2800, 0x2800, 0x7C00, 0x4400, 0x4400, 0x0000, 0x0000,  // A
+0x7800, 0x4400, 0x4400, 0x7800, 0x4400, 0x4400, 0x4400, 0x7800, 0x0000, 0x0000,  // B
+0x3800, 0x4400, 0x4000, 0x4000, 0x4000, 0x4000, 0x4400, 0x3800, 0x0000, 0x0000,  // C
+0x7000, 0x4800, 0x4400, 0x4400, 0x4400, 0x4400, 0x4800, 0x7000, 0x0000, 0x0000,  // D
+0x7C00, 0x4000, 0x4000, 0x7C00, 0x4000, 0x4000, 0x4000, 0x7C00, 0x0000, 0x0000,  // E
+0x7C00, 0x4000, 0x4000, 0x7800, 0x4000, 0x4000, 0x4000, 0x4000, 0x0000, 0x0000,  // F
+0x3800, 0x4400, 0x4000, 0x4000, 0x5C00, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // G
+0x4400, 0x4400, 0x4400, 0x7C00, 0x4400, 0x4400, 0x4400, 0x4400, 0x0000, 0x0000,  // H
+0x3800, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x3800, 0x0000, 0x0000,  // I
+0x0400, 0x0400, 0x0400, 0x0400, 0x0400, 0x0400, 0x4400, 0x3800, 0x0000, 0x0000,  // J
+0x4400, 0x4800, 0x5000, 0x6000, 0x5000, 0x4800, 0x4800, 0x4400, 0x0000, 0x0000,  // K
+0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x7C00, 0x0000, 0x0000,  // L
+0x4400, 0x6C00, 0x6C00, 0x5400, 0x4400, 0x4400, 0x4400, 0x4400, 0x0000, 0x0000,  // M
+0x4400, 0x6400, 0x6400, 0x5400, 0x5400, 0x4C00, 0x4C00, 0x4400, 0x0000, 0x0000,  // N
+0x3800, 0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // O
+0x7800, 0x4400, 0x4400, 0x4400, 0x7800, 0x4000, 0x4000, 0x4000, 0x0000, 0x0000,  // P
+0x3800, 0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x5400, 0x3800, 0x0400, 0x0000,  // Q
+0x7800, 0x4400, 0x4400, 0x4400, 0x7800, 0x4800, 0x4800, 0x4400, 0x0000, 0x0000,  // R
+0x3800, 0x4400, 0x4000, 0x3000, 0x0800, 0x0400, 0x4400, 0x3800, 0x0000, 0x0000,  // S
+0x7C00, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // T
+0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // U
+0x4400, 0x4400, 0x4400, 0x2800, 0x2800, 0x2800, 0x1000, 0x1000, 0x0000, 0x0000,  // V
+0x4400, 0x4400, 0x5400, 0x5400, 0x5400, 0x6C00, 0x2800, 0x2800, 0x0000, 0x0000,  // W
+0x4400, 0x2800, 0x2800, 0x1000, 0x1000, 0x2800, 0x2800, 0x4400, 0x0000, 0x0000,  // X
+0x4400, 0x4400, 0x2800, 0x2800, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // Y
+0x7C00, 0x0400, 0x0800, 0x1000, 0x1000, 0x2000, 0x4000, 0x7C00, 0x0000, 0x0000,  // Z
+0x1800, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1800,  // [
+0x2000, 0x2000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0800, 0x0800, 0x0000, 0x0000,  /* \ */
+0x3000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x3000,  // ]
+0x1000, 0x2800, 0x2800, 0x4400, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // ^
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xFE00,  // _
+0x2000, 0x1000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // `
+0x0000, 0x0000, 0x3800, 0x4400, 0x3C00, 0x4400, 0x4C00, 0x3400, 0x0000, 0x0000,  // a
+0x4000, 0x4000, 0x5800, 0x6400, 0x4400, 0x4400, 0x6400, 0x5800, 0x0000, 0x0000,  // b
+0x0000, 0x0000, 0x3800, 0x4400, 0x4000, 0x4000, 0x4400, 0x3800, 0x0000, 0x0000,  // c
+0x0400, 0x0400, 0x3400, 0x4C00, 0x4400, 0x4400, 0x4C00, 0x3400, 0x0000, 0x0000,  // d
+0x0000, 0x0000, 0x3800, 0x4400, 0x7C00, 0x4000, 0x4400, 0x3800, 0x0000, 0x0000,  // e
+0x0C00, 0x1000, 0x7C00, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // f
+0x0000, 0x0000, 0x3400, 0x4C00, 0x4400, 0x4400, 0x4C00, 0x3400, 0x0400, 0x7800,  // g
+0x4000, 0x4000, 0x5800, 0x6400, 0x4400, 0x4400, 0x4400, 0x4400, 0x0000, 0x0000,  // h
+0x1000, 0x0000, 0x7000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // i
+0x1000, 0x0000, 0x7000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0xE000,  // j
+0x4000, 0x4000, 0x4800, 0x5000, 0x6000, 0x5000, 0x4800, 0x4400, 0x0000, 0x0000,  // k
+0x7000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x0000, 0x0000,  // l
+0x0000, 0x0000, 0x7800, 0x5400, 0x5400, 0x5400, 0x5400, 0x5400, 0x0000, 0x0000,  // m
+0x0000, 0x0000, 0x5800, 0x6400, 0x4400, 0x4400, 0x4400, 0x4400, 0x0000, 0x0000,  // n
+0x0000, 0x0000, 0x3800, 0x4400, 0x4400, 0x4400, 0x4400, 0x3800, 0x0000, 0x0000,  // o
+0x0000, 0x0000, 0x5800, 0x6400, 0x4400, 0x4400, 0x6400, 0x5800, 0x4000, 0x4000,  // p
+0x0000, 0x0000, 0x3400, 0x4C00, 0x4400, 0x4400, 0x4C00, 0x3400, 0x0400, 0x0400,  // q
+0x0000, 0x0000, 0x5800, 0x6400, 0x4000, 0x4000, 0x4000, 0x4000, 0x0000, 0x0000,  // r
+0x0000, 0x0000, 0x3800, 0x4400, 0x3000, 0x0800, 0x4400, 0x3800, 0x0000, 0x0000,  // s
+0x2000, 0x2000, 0x7800, 0x2000, 0x2000, 0x2000, 0x2000, 0x1800, 0x0000, 0x0000,  // t
+0x0000, 0x0000, 0x4400, 0x4400, 0x4400, 0x4400, 0x4C00, 0x3400, 0x0000, 0x0000,  // u
+0x0000, 0x0000, 0x4400, 0x4400, 0x2800, 0x2800, 0x2800, 0x1000, 0x0000, 0x0000,  // v
+0x0000, 0x0000, 0x5400, 0x5400, 0x5400, 0x6C00, 0x2800, 0x2800, 0x0000, 0x0000,  // w
+0x0000, 0x0000, 0x4400, 0x2800, 0x1000, 0x1000, 0x2800, 0x4400, 0x0000, 0x0000,  // x
+0x0000, 0x0000, 0x4400, 0x4400, 0x2800, 0x2800, 0x1000, 0x1000, 0x1000, 0x6000,  // y
+0x0000, 0x0000, 0x7C00, 0x0800, 0x1000, 0x2000, 0x4000, 0x7C00, 0x0000, 0x0000,  // z
+0x1800, 0x1000, 0x1000, 0x1000, 0x2000, 0x2000, 0x1000, 0x1000, 0x1000, 0x1800,  // {
+0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000,  // |
+0x3000, 0x1000, 0x1000, 0x1000, 0x0800, 0x0800, 0x1000, 0x1000, 0x1000, 0x3000,  // }
+0x0000, 0x0000, 0x0000, 0x7400, 0x4C00, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  // ~
+};
+
+const FontDef Font_7x10 = {7,10,{0,0},Font7x10};
+
+---------- Lib/TFT.c ----------
+//#include "TFT.h"
+//#include"main.h"
+
+//#include"String.h"
+
+
+//void writeCMDTFT(uint8_t cmd)
+//{
+//    GPIO_Write_Pin(PORT_CS, PIN_CS, 0); // CS = 0
+//    GPIO_Write_Pin(PORT_A0, PIN_A0, 0); // A0 = 0 -> CMD
+//    SPI1_Send(cmd);
+//    GPIO_Write_Pin(PORT_CS, PIN_CS, 1); // CS = 1
+//}
+
+//void writeDataTFT(uint8_t data)
+//{
+//    GPIO_Write_Pin(PORT_CS, PIN_CS, 0);
+//    GPIO_Write_Pin(PORT_A0, PIN_A0, 1); // A0 = 1 -> DATA
+//    SPI1_Send(data);
+//    GPIO_Write_Pin(PORT_CS, PIN_CS, 1);
+//}
+
+//void sendCMDList(const uint8_t* cmdList)
+//{
+//    uint8_t index = 0;
+//    uint8_t cmd = 0;
+//    uint8_t num = 0;
+
+//    while(1)
+//    {
+//        cmd = *cmdList++;
+//        num = *cmdList++;
+//        if(cmd == LCD_CMD_END)
+//        {
+//            break;
+//        }
+//        else
+//        {
+//            writeCMDTFT(cmd);
+//            for(index = 0; index < num ; index++)
+//            {
+//                writeDataTFT(*cmdList++);
+//            }
+//        }
+//    }
+//}
+
+//void setPos(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
+//{
+//    writeCMDTFT(0x2A);
+//    writeDataTFT(0x00);
+//    writeDataTFT(x1);
+//    writeDataTFT(0x00);
+//    writeDataTFT(x2);
+//    writeCMDTFT(0x2B);
+//    writeDataTFT(0x00);
+//    writeDataTFT(y1);
+//    writeDataTFT(0x00);
+//    writeDataTFT(y2);
+//}
+////RGB 16bit 565
+//void fullDisplay(uint16_t color)
+//{
+//    setPos(0, 0, 127, 159);
+//    writeCMDTFT(0x2C);
+//    for(int i = 0 ; i < 128*160; i++)
+//    {
+//        writeDataTFT(color & 0xFF);
+//        writeDataTFT(color >> 8);
+//    }
+//}
+
+
+//void drawPixel(uint8_t x, uint8_t y, uint16_t color)
+//{
+//    if(x >= 128 || y >= 160)
+//    {
+//        return ;
+//    }
+//    setPos(x,y,x+1,y+1);
+//    writeCMDTFT(0x2C);
+//    writeDataTFT(color & 0xFF);
+//    writeDataTFT(color >> 8);
+//}
+
+//void fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color)
+//{
+//    setPos(x1, y1, x2, y2);
+//    writeCMDTFT(0x2C);
+//    for(int i = 0; i < (x2-x1+1) * (y2-y1+1); i++)
+//    {
+//        writeDataTFT(color & 0xFF);
+//        writeDataTFT(color >> 8);
+//    }
+//}
+
+//void initTFT(void)
+//{
+//    GPIO_Config(PORT_A0, PIN_A0, GPIO_MODE_OUTPUT_PP);
+//    GPIO_Config(PORT_CS, PIN_CS, GPIO_MODE_OUTPUT_PP);
+//    GPIO_Config(PORT_RESET, PIN_RESET, GPIO_MODE_OUTPUT_PP);
+//    // HW RESET
+//    GPIO_Write_Pin(PORT_RESET, PIN_RESET,0);
+//    delay_ms(20);
+//    GPIO_Write_Pin(PORT_RESET, PIN_RESET,1);
+//    delay_ms(150);
+//    //SW RESET
+//    writeCMDTFT(0x01);
+//    delay_ms(150);
+//    // Sleep out
+//    writeCMDTFT(0x11);
+//    delay_ms(255);
+
+//    sendCMDList(u8InitCmdList);
+
+//    writeCMDTFT(0x36); // Memory Data Access Control
+//    writeDataTFT(0x08);
+
+//    writeCMDTFT(0x3A); // Interface Pixel Format
+//    writeDataTFT(0x05);
+
+//    writeCMDTFT(0x20); // Display inversion off
+
+//    setPos(0,0,128,160);
+
+//    // EN DISPLAY
+//    writeCMDTFT(0x29);
+//    delay_ms(100);
+
+//}
+
+//void drawChar(uint8_t x, uint8_t y, uint8_t ch, FontDef font, uint16_t color, uint16_t bg)
+//{
+//    uint8_t i,j;
+//    uint16_t pixelData;
+//    setPos(x, y, x + font.width - 1, y + font.height - 1); // Place one area at a time.
+//    writeCMDTFT(0x2C);
+//    for(i = 0; i < font.height; i++)
+//    {
+//        pixelData = font.data[(ch - 32)*font.height + i];
+//        for(j = 0; j < font.width; j++)
+//        {
+//            uint16_t c = ((pixelData << j) & 0x8000) ? color : bg;
+//            writeDataTFT(c & 0xFF);                        // sending data consecutively
+//            writeDataTFT(c >> 8);
+//        }
+//    }
+//}
+
+
+
+//void drawString(uint8_t x, uint8_t y, uint8_t *str, FontDef font, uint16_t color, uint16_t bg)
+//{
+//    while(*str)
+//    {
+//        drawChar(x,y,*str,font,color,bg);
+//        x+= font.width;
+//        str++;
+//    }
+//}
+
+
+
+//void Display_Time_Digit(uint8_t x, uint8_t y, uint16_t number, FontDef font, uint16_t color, uint16_t bg)
+//{
+//    char str[5];                                            // string 2 character and \0'
+
+//    number_to_character_t((uint8_t)number, (uint8_t*)str, 2);
+//    str[2] = '\0';                                           // end character
+
+//    drawString(x, y, (uint8_t*)str, font, color, bg);
+//}
+
+//void Update_Time_Top(void)
+//{
+//    // Ve gio o tren (y=50) - can giua
+//    Display_Time_Digit(36, 50, rtc_h, Font_7x10, 0xFFFF, 0x1098);
+//    drawString(50, 50, (uint8_t*)":", Font_7x10, 0xFFFF, 0x1098);
+//    Display_Time_Digit(57, 50, rtc_m, Font_7x10, 0xFFFF, 0x1098);
+//    drawString(71, 50, (uint8_t*)":", Font_7x10, 0xFFFF, 0x1098);
+//    Display_Time_Digit(78, 50, rtc_s, Font_7x10, 0xFFFF, 0x1098);
+//}
+
+//void Update_Date_Top(void)
+//{
+//    // Ve ngay o tren (y=50) - can giua
+//    Display_Time_Digit(36, 50, rtc_d, Font_7x10, 0xFFFF, 0x1098);
+//    drawString(50, 50, (uint8_t*)"/", Font_7x10, 0xFFFF, 0x1098);
+//    Display_Time_Digit(57, 50, rtc_mt, Font_7x10, 0xFFFF, 0x1098);
+//    drawString(71, 50, (uint8_t*)"/", Font_7x10, 0xFFFF, 0x1098);
+//    Display_Time_Digit(78, 50, rtc_y, Font_7x10, 0xFFFF, 0x1098);
+//}
+
+//void Update_Date_Bottom(void)
+//{
+//    // Ve ngay o duoi (y=70) - can giua
+//    Display_Time_Digit(36, 70, rtc_d, Font_7x10, 0xFFE0, 0x1098);
+//    drawString(50, 70, (uint8_t*)"/", Font_7x10, 0xFFE0, 0x1098);
+//    Display_Time_Digit(57, 70, rtc_mt, Font_7x10, 0xFFE0, 0x1098);
+//    drawString(71, 70, (uint8_t*)"/", Font_7x10, 0xFFE0, 0x1098);
+//    Display_Time_Digit(78, 70, rtc_y, Font_7x10, 0xFFE0, 0x1098);
+//}
+
+
+//void Update_Clock_Display(void)
+//{
+//    if (g_DisplayStatus == DISPLAY_STATUS_OFF)
+//    {
+//        return;
+//    }
+
+//    if (g_IsTimeSynced == 1)
+//    {
+//        DS3231_Get_Time(&rtc_h, &rtc_m, &rtc_s);
+//        DS3231_Get_Day(&rtc_d, &rtc_mt, &rtc_y);
+//    }
+//    else
+//    {
+//        rtc_h = 0;
+//        rtc_m = 0;
+//        rtc_s = 0;
+//        rtc_d = 1;
+//        rtc_mt = 1;
+//        rtc_y = 26;
+//    }
+
+//    if (g_DisplayMode == DISPLAY_MODE_TIME)
+//    {
+//        // Hien thi gio o tren + ngay o duoi (mac dinh luc khoi dong)
+//        fillRect(28, 45, 100, 65, 0x1098);
+//        Update_Time_Top();
+//        Update_Date_Bottom();
+//    }
+//    else if (g_DisplayMode == DISPLAY_MODE_DATE)
+//    {
+//        // Chi hien thi ngay o tren, xoa gio o tren
+//        fillRect(28, 45, 100, 65, 0x1098);
+//        Update_Date_Top();
+//        Update_Date_Bottom();
+//    }
+
+//}
+
+//void Update_Clock_Display_Silent(void)
+//{
+//    if (g_DisplayStatus == DISPLAY_STATUS_OFF) return;
+
+//    if (g_IsTimeSynced == 1)
+//    {
+//        DS3231_Get_Time(&rtc_h, &rtc_m, &rtc_s);
+//        DS3231_Get_Day(&rtc_d, &rtc_mt, &rtc_y);
+//    }
+//    else
+//    {
+//        rtc_h = 0;
+//        rtc_m = 0;
+//        rtc_s = 0;
+//        rtc_d = 1;
+//        rtc_mt = 1;
+//        rtc_y = 26;
+//    }
+
+//    if (g_DisplayMode == DISPLAY_MODE_TIME)
+//    {
+//        Update_Time_Top();
+//        Update_Date_Bottom();
+//    }
+//    else if (g_DisplayMode == DISPLAY_MODE_DATE)
+//    {
+//        Update_Date_Top();
+//        Update_Date_Bottom();
+//    }
+//}
+
+
+
+/* =========================================================
+ *  TFT.c ！ TFT ST7735 display driver over SPI
+ *
+ *  Contains: pure driver only (write/draw/init)
+ *  Clock display logic has been moved to Core/Display_task.c
+ *
+ *  Dependencies:
+ *    - TFT.h  : prototypes + defines
+ *    - SPI.h  : SPI1_Send
+ *    - GPIO.h : GPIO_Write_Pin, GPIO_Config
+ *    - Tim.h  : delay_ms
+ * ========================================================= */
+
+
+#include "TFT.h"          // own header
+#include "SPI.h"          // SPI1_Send
+#include "GPIO.h"         // GPIO_Config, GPIO_Write_Pin
+#include "Tim.h"          // delay_ms
+#include "FONT.h"         // FontDef
+
+
+/* =========================================================
+ *  SEND COMMAND / DATA
+ * ========================================================= */
+void writeCMDTFT(uint8_t cmd)
+{
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 0);
+    GPIO_Write_Pin(PORT_A0, PIN_A0, 0); // A0=0 -> CMD
+    SPI1_Send(cmd);
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 1);
+}
+
+void writeDataTFT(uint8_t data)
+{
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 0);
+    GPIO_Write_Pin(PORT_A0, PIN_A0, 1); // A0=1 -> DATA
+    SPI1_Send(data);
+    GPIO_Write_Pin(PORT_CS, PIN_CS, 1);
+}
+
+/* =========================================================
+ *  SEND INIT COMMAND LIST
+ * ========================================================= */
+void sendCMDList(const uint8_t* cmdList)
+{
+    uint8_t index = 0;
+    uint8_t cmd   = 0;
+    uint8_t num   = 0;
+
+    while (1)
+    {
+        cmd = *cmdList++;
+        num = *cmdList++;
+        if (cmd == LCD_CMD_END) break;
+
+        writeCMDTFT(cmd);
+        for (index = 0; index < num; index++)
+        {
+            writeDataTFT(*cmdList++);
+        }
+    }
+}
+
+/* =========================================================
+ *  SET DRAW REGION (coordinate window)
+ * ========================================================= */
+void setPos(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
+{
+    writeCMDTFT(0x2A);
+    writeDataTFT(0x00); writeDataTFT(x1);
+    writeDataTFT(0x00); writeDataTFT(x2);
+
+    writeCMDTFT(0x2B);
+    writeDataTFT(0x00); writeDataTFT(y1);
+    writeDataTFT(0x00); writeDataTFT(y2);
+}
+
+/* =========================================================
+ *  FILL ENTIRE SCREEN
+ * ========================================================= */
+void fullDisplay(uint16_t color)
+{
+    setPos(0, 0, 127, 159);
+    writeCMDTFT(0x2C);
+    for (int i = 0; i < 128 * 160; i++)
+    {
+        writeDataTFT(color & 0xFF);
+        writeDataTFT(color >> 8);
+    }
+}
+
+/* =========================================================
+ *  DRAW 1 PIXEL
+ * ========================================================= */
+void drawPixel(uint8_t x, uint8_t y, uint16_t color)
+{
+    if (x >= 128 || y >= 160) return;
+    setPos(x, y, x + 1, y + 1);
+    writeCMDTFT(0x2C);
+    writeDataTFT(color & 0xFF);
+    writeDataTFT(color >> 8);
+}
+
+/* =========================================================
+ *  FILL RECTANGLE
+ * ========================================================= */
+void fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color)
+{
+    setPos(x1, y1, x2, y2);
+    writeCMDTFT(0x2C);
+    for (int i = 0; i < (x2 - x1 + 1) * (y2 - y1 + 1); i++)
+    {
+        writeDataTFT(color & 0xFF);
+        writeDataTFT(color >> 8);
+    }
+}
+
+/* =========================================================
+ *  INIT DISPLAY
+ * ========================================================= */
+void initTFT(void)
+{
+    GPIO_Config(PORT_A0,    PIN_A0,    GPIO_MODE_OUTPUT_PP);
+    GPIO_Config(PORT_CS,    PIN_CS,    GPIO_MODE_OUTPUT_PP);
+    GPIO_Config(PORT_RESET, PIN_RESET, GPIO_MODE_OUTPUT_PP);
+
+    // HW RESET
+    GPIO_Write_Pin(PORT_RESET, PIN_RESET, 0);
+    delay_ms(20);
+    GPIO_Write_Pin(PORT_RESET, PIN_RESET, 1);
+    delay_ms(150);
+
+    // SW RESET
+    writeCMDTFT(0x01);
+    delay_ms(150);
+
+    // Sleep out
+    writeCMDTFT(0x11);
+    delay_ms(255);
+
+    sendCMDList(u8InitCmdList);
+
+    writeCMDTFT(0x36); writeDataTFT(0x08); // Memory Data Access Control
+    writeCMDTFT(0x3A); writeDataTFT(0x05); // Interface Pixel Format
+    writeCMDTFT(0x20);                      // Display inversion off
+
+    setPos(0, 0, 128, 160);
+
+    writeCMDTFT(0x29); // Enable display
+    delay_ms(100);
+}
+
+/* =========================================================
+ *  DRAW 1 CHARACTER
+ * ========================================================= */
+void drawChar(uint8_t x, uint8_t y, uint8_t ch,
+              FontDef font, uint16_t color, uint16_t bg)
+{
+    uint8_t  i, j;
+    uint16_t pixelData;
+
+    setPos(x, y, x + font.width - 1, y + font.height - 1);
+    writeCMDTFT(0x2C);
+
+    for (i = 0; i < font.height; i++)
+    {
+        pixelData = font.data[(ch - 32) * font.height + i];
+        for (j = 0; j < font.width; j++)
+        {
+            uint16_t c = ((pixelData << j) & 0x8000) ? color : bg;
+            writeDataTFT(c & 0xFF);
+            writeDataTFT(c >> 8);
+        }
+    }
+}
+
+/* =========================================================
+ *  DRAW STRING
+ * ========================================================= */
+void drawString(uint8_t x, uint8_t y, uint8_t *str,
+                FontDef font, uint16_t color, uint16_t bg)
+{
+    while (*str)
+    {
+        drawChar(x, y, *str, font, color, bg);
+        x += font.width;
+        str++;
+    }
+}
+
+
+
+---------- Lib/DS3231.h ----------
+#ifndef __DS3231_H
+#define __DS3231_H 
+#include "stdint.h"
+
+uint8_t bcd_to_dec(uint8_t bcd);
+uint8_t dec_to_bcd(uint8_t dec);
+
+void DS3231_Set_Time(uint8_t hour, uint8_t min, uint8_t sec);
+ void DS3231_Set_Day(uint8_t day, uint8_t month, uint8_t year);
+void DS3231_Get_Time(volatile uint8_t *hour, volatile uint8_t *min, volatile uint8_t *sec);
+void DS3231_Get_Day(volatile uint8_t *day, volatile uint8_t *month, volatile uint8_t *year);
+
+#endif
+
+
+---------- Lib/FONT.h ----------
+#ifndef __FONT_H
+#define __FONT_H
+#include <stdint.h>
+typedef struct
+{
+    const uint8_t width;
+    const uint8_t height;
+    const uint8_t reserved[2]; //pending 2byet
+    const uint16_t *data;
+} FontDef;
+extern const FontDef Font_7x10 ;
+
+#endif
+
+
+---------- Lib/TFT.h ----------
+#ifndef _TFT_H
+#define _TFT_H
+#include <stdint.h>
+#include "GPIO.h"
+#include "SPI.h"
+#include "Tim.h"
+#include "FONT.h"
+
+#define LCD_CMD_END 0xFF
+
+#define PORT_LED  GPIOB
+#define PIN_LED   GPIO_PIN_3
+
+#define PORT_RESET  GPIOB
+#define PORT_CS     GPIOB
+#define PORT_A0     GPIOB //DATA OR CMD
+#define PIN_RESET   GPIO_PIN_10
+#define PIN_CS      GPIO_PIN_0
+#define PIN_A0      GPIO_PIN_1
+
+
+static const uint8_t u8InitCmdList[] =
+{
+//  Command     Length      Data
+    0xB1,       0x03,       0x01, 0x2C, 0x2D,                       // Frame Rate Control (In normal mode/ Full colors)
+    0xB2,       0x03,       0x01, 0x2C, 0x2D,                       // Frame Rate Control (In Idle mode/ 8-colors)
+    0xB3,       0x06,       0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D,     // Frame Rate Control (In Partial mode/ full colors)
+    0xB4,       0x01,       0x07,                                   // Display Inversion Control
+    0xC0,       0x03,       0xA2, 0x02, 0x84,                       // Power Control 1
+    0xC1,       0x01,       0xC5,                                   // Power Control 2
+    0xC2,       0x02,       0x0A, 0x00,                             // Power Control 3 (in Normal mode/ Full colors)
+    0xC3,       0x02,       0x8A, 0x2A,                             // Power Control 4 (in Idle mode/ 8-colors)
+    0xC4,       0x02,       0x8A, 0xEE,                             // Power Control 5 (in Partial mode/ full-colors)
+    0xC5,       0x01,       0x0E,                                   // VCOM Control 1
+    0xE0,       0x10,       0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10,     //Gamma adjustment(+ polarity)
+    0xE1,       0x10,       0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10,     //Gamma adjustment(- polarity)
+    LCD_CMD_END, LCD_CMD_END
+};
+
+
+void writeCMDTFT(uint8_t cmd);
+void writeDataTFT(uint8_t data);
+void sendCMDList(const uint8_t* cmdList);
+void setPos(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
+void fullDisplay(uint16_t color);
+void drawPixel(uint8_t x, uint8_t y, uint16_t color);
+void initTFT(void);
+void drawChar(uint8_t x, uint8_t y,  uint8_t ch, FontDef font, uint16_t color, uint16_t bg);
+void drawString(uint8_t x, uint8_t y,  uint8_t *str, FontDef font, uint16_t color, uint16_t bg);
+void Display_Initial_Setup(void);
+void Display_Time_Digit(uint8_t x, uint8_t y, uint16_t number, FontDef font, uint16_t color, uint16_t bg);
+void Update_Clock_Display(void);
+void Update_Time_Top(void);
+void Update_Date_Bottom(void);
+void Update_Date_Top(void);
+void fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color);
+void Update_Clock_Display_Silent(void);
+#endif
