@@ -1,0 +1,39 @@
+
+#include "BUTTON.h"       // own header ¡ª already present
+#include "GPIO.h"         // GPIO_Read_Pin
+#include "main.h"         // g_Button1PressedFlag, g_Button2PressedFlag
+#include "Tim.h"          // g_DisplayStatus, g_DisplayMode, g_ScreenChangedFlag
+#include "UART.h"         
+
+
+void Button_Task(void)
+{
+
+    if (g_Button2PressedFlag)
+    {
+        delay_ms(200);
+        g_Button2PressedFlag = 0;
+        /*  state on/ off display */
+        if (g_DisplayStatus == DISPLAY_STATUS_ON)
+            g_DisplayStatus = DISPLAY_STATUS_OFF;
+        else
+            g_DisplayStatus = DISPLAY_STATUS_ON;
+        g_ScreenChangedFlag = 1;
+
+    }
+    if(g_Button1PressedFlag)
+    {
+        delay_ms(200);
+        g_Button1PressedFlag = 0;
+        /*  toggle ngay/gio */
+        if(g_DisplayStatus == DISPLAY_STATUS_ON)
+        {
+            if (g_DisplayMode == DISPLAY_MODE_TIME)
+                g_DisplayMode = DISPLAY_MODE_DATE;
+            else g_DisplayMode = DISPLAY_MODE_TIME;
+            g_DisplayModeToggleFlag = 1;               //Toggle display mode (no clear screen)
+        }
+
+    }
+}
+

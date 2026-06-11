@@ -1,0 +1,12 @@
+# Keil build output
+Objects/
+Listings/
+
+# Keil personal settings
+*.uvguix.*
+*.uvoptx
+*.bak
+
+# Debug
+DebugConfig/
+EventRecorderStub.scvd

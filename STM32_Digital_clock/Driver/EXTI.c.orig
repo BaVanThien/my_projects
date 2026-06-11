@@ -1,0 +1,150 @@
+
+#include "EXTI.h"         // own header ¡ª already present
+#include "AFIO.h"         // AFIO->EXTICR ¡ª already present
+#include "main.h"         // g_Button1PressedFlag, g_Button2PressedFlag
+#include "GPIO.h"         // GPIO_Read_Pin
+#include "UART.h"         // UART1_SendString
+#include "Tim.h"          // delay_ms
+
+void EXIT0_Init(void)
+{
+    // IRQs
+    AFIO->EXTICR1.REG &=~(uint32_t)(0xF << 0);          // clear bitTI->IMR
+    EXTI->IMR.BITS.BIT0 = 1;
+    EXTI->RTSR.BITS.BIT0 = 1;                           // choice rising
+    EXTI->FTSR.BITS.BIT0 = 0;
+    // NIVIC
+    NVIC_ISER0 |=(uint32_t)(1<< 6);
+}
+void EXTI1_Init(void)
+{
+    // choice PA1 cho EXTI1
+    AFIO->EXTICR1.REG &= ~(uint32_t)(0xF << 4);
+    // Enable interrupt mask cho Line 1
+    EXTI->IMR.BITS.BIT1 = 1;
+    // choice rising
+    EXTI->RTSR.BITS.BIT1 = 1;
+    EXTI->FTSR.BITS.BIT1 = 0;
+    // Enable EXTI1 IRQ trong NVIC
+    NVIC_ISER0 |= (uint32_t)(1 << 7);
+}
+
+void EXTI0_IRQHandler(void)// function interup
+{
+    if(EXTI->PR.REG & (1 << 0))
+    {  
+        EXTI->PR.REG |= (uint32_t)(1<<0); 
+        if(GPIO_Read_Pin(GPIOA, GPIO_PIN_0) == 1)
+        {
+            g_Button1PressedFlag = 1;
+        }
+                          
+    }
+}
+void EXTI1_IRQHandler(void)
+{
+    if (EXTI->PR.REG & (1 << 1))
+    {   
+         EXTI->PR.REG = (uint32_t)(1 << 1);
+        if(GPIO_Read_Pin(GPIOA, GPIO_PIN_1) == 1)
+        {
+            g_Button2PressedFlag = 1;
+        }
+      
+    }
+}
+
+uint8_t get_Pin_Number(uint16_t gpio_pin)
+
+{
+    for(uint8_t i = 0; i < 16; i++)
+    {
+        if(gpio_pin &(1<<i))
+        {
+            return i;
+        }
+    }
+    return 0xFF;
+}
+
+void EXIT_Config_Expert(GPIO_Typedef *port, uint8_t gpio_pin,uint8_t type)
+{
+    // config AFIO to choice port for pin
+    uint8_t port_code = 0;
+    uint32_t shift;
+    uint8_t pin;
+    if(port == GPIOA)
+    {
+        port_code = 0;              //0xb0000
+    }
+    else if(port == GPIOB)
+    {
+        port_code = 1;               //0xb0001
+    }
+    else if(port == GPIOC)
+    {
+        port_code = 2;              //0xb0010
+    }
+    pin = get_Pin_Number(gpio_pin);
+    shift = (pin % 4) * 4;
+
+    if(pin < 4)
+    {
+        AFIO->EXTICR1.REG &=~(uint32_t)(0xF << shift);
+        AFIO->EXTICR1.REG |= (uint32_t)(port_code << shift);
+    }
+    else if(pin < 8)
+    {
+        AFIO->EXTICR2.REG &=~(uint32_t)(0xF << 0);
+        AFIO->EXTICR2.REG |= (uint32_t)(port_code << shift);
+    }
+    else if(pin < 12 )
+    {
+        AFIO->EXTICR3.REG &=~(uint32_t)(0xF << 0);
+        AFIO->EXTICR3.REG |= (uint32_t)(port_code << shift);
+    }
+    // open masks interrup
+    EXTI->IMR.REG |= (uint32_t)(1 << pin);
+
+    // config mode interrup
+    if(type == EXTI_RISING_MODE)
+    {
+        EXTI->RTSR.REG |= (1<< pin);
+        EXTI->FTSR.REG &=~(uint32_t)(1<< pin);
+    }
+    else	if(type == EXTI_FALLING_MODE)
+    {
+        EXTI->FTSR.REG |=(uint32_t)(1<< pin);
+        EXTI->RTSR.REG &= ~(uint32_t)(1<< pin);
+    }
+    else
+    {
+        EXTI->RTSR.REG |= (1<< pin);
+        EXTI->FTSR.REG |= (1<< pin);
+    }
+
+    // config NVIC
+    if(pin <= 4 )
+    {
+        NVIC_ISER0 |= (1<<(pin + 6));
+    }
+    else if(pin >= 5 && pin <=9 )
+    {
+        NVIC_ISER0 |= (1<< 23);
+    }
+    else if(pin >= 10 && pin <=15)
+    {
+        NVIC_ISER1 |= (1<< (40 - 32));
+    }
+}
+
+void NVIC_UART_En(void)
+{
+    NVIC_ISER1 |= (1<< (37 - 32));
+}
+void NVIC_DMA1_En(void)
+{
+    NVIC_ISER0 |= (1<< 15);
+}
+
+
