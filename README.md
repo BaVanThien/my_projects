@@ -1,5 +1,3 @@
-# My Embedded Projects
-
 Hi, I'm **Ba Van Thien** — a Fresher Embedded Software Engineer with a strong foundation in C programming, ARM Cortex-M microcontrollers, and bare-metal firmware development.
 
 This repository contains my personal embedded projects built from scratch — no HAL, no BSP, no auto-generated code.
@@ -9,6 +7,7 @@ This repository contains my personal embedded projects built from scratch — no
 ## Projects
 
 ### 1. [STM32 Digital Clock](./STM32_Digital_clock/)
+
 > 03/2026 – 05/2026
 
 A digital clock firmware on STM32F103 (ARM Cortex-M3) with TFT display, RTC module, button control, and UART date/time setting.
@@ -18,6 +17,7 @@ A digital clock firmware on STM32F103 (ARM Cortex-M3) with TFT display, RTC modu
 ---
 
 ### 2. [STM32 Bare-metal Build System with Makefile](./STM32_build_makefile/)
+
 > 05/2026 – 06/2026
 
 A complete build system for STM32 built from scratch without any IDE — custom linker script, startup file, and Makefile pipeline.
@@ -26,15 +26,26 @@ A complete build system for STM32 built from scratch without any IDE — custom 
 
 ---
 
+### 3. [STM32 Snake Game with FreeRTOS](./STM32_Snake_Game_FreeRTOS/)
+
+> 06/2026
+
+A real-time Snake game on STM32F103 (ARM Cortex-M3) using FreeRTOS — two-task architecture with bare-metal SPI driver for TFT LCD display.
+
+**Key skills:** FreeRTOS (Task, Mutex, Event Group), Bare-metal SPI driver, GPIO, Software debounce
+
+---
+
 ## Tech Stack
 
-| Category | Details |
-|---|---|
-| Language | Embedded C |
-| MCU | STM32F103C8 (ARM Cortex-M3) |
-| Protocols | UART, I2C, SPI |
-| Peripherals | GPIO, Timer, EXTI, DMA, ADC |
-| Tools | Keil C, ARM GCC, Makefile, ST-Link, Logic Analyzer, VS Code, MSYS2 |
+| Category    | Details                                                              |
+|-------------|----------------------------------------------------------------------|
+| Language    | Embedded C                                                           |
+| MCU         | STM32F103C8 (ARM Cortex-M3)                                          |
+| RTOS        | FreeRTOS (Task, Mutex, Event Group)                                  |
+| Protocols   | UART, I2C, SPI                                                       |
+| Peripherals | GPIO, Timer, EXTI, DMA, ADC                                          |
+| Tools       | Keil C, ARM GCC, Makefile, ST-Link, Logic Analyzer, VS Code, MSYS2  |
 
 ---
 
