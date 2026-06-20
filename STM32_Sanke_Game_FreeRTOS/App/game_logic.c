@@ -1,0 +1,115 @@
+#include "game_logic.h"
+#include "display.h"
+#include "main.h"
+
+/* ---------- GLOBALS VARIALE ---------- */
+Snake snake;
+Point food;
+int   isGrowing = 0;
+
+/* ---------- IMPLEMENTATIONS ---------- */
+
+void generateFood(void)
+{
+    food.x = (uint8_t)rand() % (SCREEN_WIDTH  / 2);
+    food.y = (uint8_t)rand() % (SCREEN_HEIGHT / 2);
+}
+
+void initGame(void)
+{
+    snake.length  = 3;
+    snake.dir     = DIR_RIGHT;
+    snake.body[0] = (Point)
+    {
+        5, 5
+    };
+    snake.body[1] = (Point)
+    {
+        4, 5
+    };
+    snake.body[2] = (Point)
+    {
+        3, 5
+    };
+    isGrowing     = 0;
+
+    generateFood();
+    fullDisplay(0x0000);
+    drawFood();
+    drawHead(snake.body[0]);
+    drawPixelBlock(snake.body[1].x, snake.body[1].y, 0x07E0);
+    drawPixelBlock(snake.body[2].x, snake.body[2].y, 0x07E0);
+}
+
+void gameOver(const char *msg)
+{
+    xSemaphoreTake(xLcdMutex, portMAX_DELAY);
+    fullDisplay(0x0000);
+    drawString(0,  0, (char *)msg,     Font_7x10, 0xFFFF, 0x0000);
+    drawString(0, 20, "Press any key", Font_7x10, 0xFFFF, 0x0000);
+    xSemaphoreGive(xLcdMutex);
+
+    xEventGroupWaitBits(xDirectionEvent,
+                        DIR_EVENT_UP | DIR_EVENT_DOWN | DIR_EVENT_LEFT | DIR_EVENT_RIGHT,
+                        pdTRUE, pdFALSE, portMAX_DELAY);
+    initGame();
+}
+
+void checkCollision(void)
+{
+    Point head = snake.body[0];
+
+    if (head.x >= SCREEN_WIDTH / 2 || head.y >= SCREEN_HEIGHT / 2)
+    {
+        gameOver("Hit wall");
+        return;
+    }
+
+    for (int i = 1; i < snake.length; i++)
+    {
+        if (head.x == snake.body[i].x && head.y == snake.body[i].y)
+        {
+            gameOver("Hit self");
+            return;
+        }
+    }
+
+    if (head.x == food.x && head.y == food.y)
+    {
+        if (snake.length < MAX_SNAKE_LENGTH)
+        {
+            snake.body[snake.length] = snake.body[snake.length - 1];
+            snake.length++;
+            isGrowing = 1;
+        }
+        generateFood();
+        drawFood();
+    }
+}
+
+void moveSnake(void)
+{
+    Point tail = snake.body[snake.length - 1];
+
+    for (int i = snake.length - 1; i > 0; i--)
+        snake.body[i] = snake.body[i - 1];
+
+    switch (snake.dir)
+    {
+    case DIR_UP:
+        snake.body[0].y--;
+        break;
+    case DIR_DOWN:
+        snake.body[0].y++;
+        break;
+    case DIR_LEFT:
+        snake.body[0].x--;
+        break;
+    case DIR_RIGHT:
+        snake.body[0].x++;
+        break;
+    }
+
+    if (!isGrowing) clearTail(tail);
+    else            isGrowing = 0;
+}

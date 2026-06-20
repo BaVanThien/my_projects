@@ -1,0 +1,25 @@
+#ifndef BUTTON_H
+#define BUTTON_H
+
+#include "main.h"
+#include "CPIO.h"   
+
+#define BTN_UP_PORT    GPIOA
+#define BTN_UP_PIN     GPIO_PIN_4
+
+#define BTN_DOWN_PORT  GPIOA
+#define BTN_DOWN_PIN   GPIO_PIN_1
+
+#define BTN_LEFT_PORT  GPIOA
+#define BTN_LEFT_PIN   GPIO_PIN_6
+
+#define BTN_RIGHT_PORT GPIOA
+#define BTN_RIGHT_PIN  GPIO_PIN_3
+
+void Button_Init(void);
+int  Button_Up_Pressed(void);
+int  Button_Down_Pressed(void);
+int  Button_Left_Pressed(void);
+int  Button_Right_Pressed(void);
+
+#endif /* BUTTON_H */

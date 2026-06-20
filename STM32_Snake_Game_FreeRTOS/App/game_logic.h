@@ -1,0 +1,54 @@
+#ifndef GAME_LOGIC_H
+#define GAME_LOGIC_H
+
+#include "main.h"
+#include "FreeRTOS.h"
+#include "event_groups.h"
+#include "semphr.h"
+
+/* ---------- CONFIG ---------- */
+#define SCREEN_WIDTH      128
+#define SCREEN_HEIGHT     160
+#define MAX_SNAKE_LENGTH  40
+
+#define DIR_EVENT_UP    (1 << 0)
+#define DIR_EVENT_DOWN  (1 << 1)
+#define DIR_EVENT_LEFT  (1 << 2)
+#define DIR_EVENT_RIGHT (1 << 3)
+
+/* ---------- TYPES ---------- */
+typedef enum { DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT } Direction;
+
+typedef struct
+{
+    uint8_t x;
+    uint8_t y;
+} Point;
+
+typedef struct
+{
+    Point     body[MAX_SNAKE_LENGTH];
+    uint8_t   length;
+    Direction dir;
+} Snake;
+
+/* ---------- SHARED RTOS OBJECTS ---------- */
+/* ??nh ngh?a trong main.c, d¨´ng chung to¨¤n project */
+extern SemaphoreHandle_t  xSnakeMutex;
+extern SemaphoreHandle_t  xLcdMutex;
+extern EventGroupHandle_t xDirectionEvent;
+
+/* ---------- GAME STATE ---------- */
+extern Snake snake;
+extern Point food;
+extern int   isGrowing;
+
+/* ---------- FUNCTIONS ---------- */
+void initGame(void);
+void generateFood(void);
+void moveSnake(void);
+void checkCollision(void);
+void gameOver(const char *msg);
+
+#endif /* GAME_LOGIC_H */
+

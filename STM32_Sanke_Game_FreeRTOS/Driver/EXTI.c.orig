@@ -1,0 +1,99 @@
+#include"EXTI.h"
+#include"AFIO.h"
+#include"TYPE.h"
+#include"CPIO.h"
+#include"stdio.h"
+
+#define NVIC_ISER0 (*((uint32_t*)(0xE000E100UL)))
+void EXIT0_Init(void)
+	{
+  // IRQs
+	AFIO->EXTICR1.REG &=~(uint32_t)(0xF << 0);  // clear bitTI->IMR
+    EXTI->IMR.BITS.BIT0 = 1;                    // 
+	EXTI->RTSR.BITS.BIT0 = 1;                   // choice canh len
+    EXTI->FTSR.BITS.BIT0 = 0;
+   // NIVIC
+	NVIC_ISER0 |=(uint32_t)(1<< 6);
+	}
+void EXTI0_IRQHandler(void)// function interup
+	{
+		if(EXTI->PR.BITS.BIT0)// 
+			// doing somthing 
+		EXTI->PR.REG |= (uint32_t)(1<<0);// flat dectec exit etr
+	}
+
+
+uint8_t get_Pin_Number(uint16_t gpio_pin)	
+	
+	{
+		for(uint8_t i = 0; i < 16; i++)
+		{ 
+			if(gpio_pin &(1<<i)){
+				return i;
+				}
+		}
+		return 0xFF;
+	}
+
+void EXIT_Config_Expert(GPIO_Typedef *port, uint8_t gpio_pin,uint8_t type){
+	// config AFIO to choice port for pin 
+    uint8_t pin;
+    uint32_t shift;
+	uint8_t port_code;
+	if(port == GPIOA)
+		{
+			port_code = 0;
+		}else if(port == GPIOB)
+		{
+			port_code = 1;
+		}else if(port == GPIOC){
+			port_code = 2;
+		}
+		pin = get_Pin_Number(gpio_pin);
+	    shift = (pin % 4) * 4; // pin 3
+		
+		if(pin < 4){
+			AFIO->EXTICR1.REG &=~(uint32_t)(0xF << shift);
+      AFIO->EXTICR1.REG |= (uint32_t)(port_code << shift);			
+		}else if(pin < 8){
+			AFIO->EXTICR2.REG &=~(uint32_t)(0xF << 0);
+      AFIO->EXTICR2.REG |= (uint32_t)(port_code << shift);			
+		}
+		else if(pin < 12 ){
+			AFIO->EXTICR3.REG &=~(uint32_t)(0xF << 0);
+      AFIO->EXTICR3.REG |= (uint32_t)(port_code << shift);			
+		}
+		// open masks interrup
+		EXTI->IMR.REG |= (uint32_t)(1 << pin);
+		
+		// config mode interrup
+		if(type == EXTI_RISING_MODE){
+		EXTI->RTSR.REG |= (1<< pin);	
+    EXTI->FTSR.REG &=~(uint32_t)(1<< pin);
+		}else	if(type == EXTI_FALLING_MODE){
+		EXTI->FTSR.REG |=(uint32_t)(1<< pin);	
+    EXTI->RTSR.REG &= ~(uint32_t)(1<< pin);
+		}else{
+			EXTI->RTSR.REG |= (1<< pin);	
+			EXTI->FTSR.REG |= (1<< pin);
+		}
+			
+		// config NVIC
+		if(pin <= 4 ){
+		NVIC_ISER0 |= (1<<(pin + 6));
+	 }
+		else if(pin >= 5 && pin <=9 ){
+		NVIC_ISER0 |= (1<< 23);			
+	}else if(pin >= 10 && pin <=15){ 
+		NVIC_ISER1 |= (1<< (40 - 32));	
+	}
+}
+
+void NVIC_UART_En(void){
+	NVIC_ISER1 |= (1<< (37 - 32));
+}
+
+void NVIC_USB_En(void){
+	NVIC_ISER0 |= (1<<20);
+}
+

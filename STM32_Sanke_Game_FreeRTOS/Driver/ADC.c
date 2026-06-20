@@ -1,0 +1,9 @@
+#include<stdint.h>
+#include"ADC.h"
+
+void ADC01_CH01_Init(void) {}
+uint16_t ADC01_CH0_Read(void)
+{
+    return 0x00;
+}
+

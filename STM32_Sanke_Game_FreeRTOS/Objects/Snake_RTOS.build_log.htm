@@ -1,0 +1,186 @@
+<html>
+<body>
+<pre>
+<h1>µVision Build Log</h1>
+<h2>Tool Versions:</h2>
+IDE-Version: µVision V5.37.0.0
+Copyright (C) 2022 ARM Ltd and ARM Germany GmbH. All rights reserved.
+License Information: thien2000 ASUS, fpt, LIC=----
+ 
+Tool Versions:
+Toolchain:       MDK-Lite  Version: 5.37.0.0
+Toolchain Path:  C:\Keil_v5\ARM\ARMCLANG\Bin
+C Compiler:      ArmClang.exe V6.18
+Assembler:       Armasm.exe V6.18
+Linker/Locator:  ArmLink.exe V6.18
+Library Manager: ArmAr.exe V6.18
+Hex Converter:   FromElf.exe V6.18
+CPU DLL:         SARMCM3.DLL V5.37.0.0
+Dialog DLL:      DCM.DLL V1.17.5.0
+Target DLL:      STLink\ST-LINKIII-KEIL_SWO.dll V3.0.9.0
+Dialog DLL:      TCM.DLL V1.56.1.0
+ 
+<h2>Project:</h2>
+E:\file_EBD\program C\program C\khoa_stm32\RTOS\sanke_RTOS\Snake_RTOS.uvprojx
+Project File Date:  06/20/2026
+
+<h2>Output:</h2>
+*** Using Compiler 'V6.18', folder: 'C:\Keil_v5\ARM\ARMCLANG\Bin'
+Rebuild target 'RTOS'
+compiling ADC.c...
+compiling RCC.c...
+Driver/SPI.c(27): warning: mixing declarations and code is incompatible with standards before C99 [-Wdeclaration-after-statement]
+    uint32_t checkDataR = SPI1_DR;
+             ^
+1 warning generated.
+compiling SPI.c...
+Core/main.c(1): warning: In file included from...
+./Core\main.h(19): warning: In file included from...
+./Lib\TFT.h(7): warning: In file included from...
+./Lib/FONT.h(9): warning: padding struct 'FontDef' with 2 bytes to align 'data' [-Wpadded]
+    const uint16_t *data;
+                    ^
+1 warning generated.
+compiling main.c...
+compiling I2C.c...
+Driver/EXTI.c(63): warning: variable 'port_code' may be uninitialized when used here [-Wconditional-uninitialized]
+        AFIO->EXTICR1.REG |= (uint32_t)(port_code << shift);
+                                        ^~~~~~~~~
+Driver/EXTI.c(44): note: initialize the variable 'port_code' to silence this warning
+    uint8_t port_code;
+                     ^
+                      = '\0'
+1 warning generated.
+compiling EXTI.c...
+compiling GPIO.c...
+compiling Tim.c...
+compiling UART.c...
+compiling button.c...
+Lib/DS3231.c(17): warning: mixing declarations and code is incompatible with standards before C99 [-Wdeclaration-after-statement]
+    uint8_t status = 0;
+            ^
+1 warning generated.
+compiling DS3231.c...
+Lib/FONT.c(2): warning: In file included from...
+./Lib/FONT.h(9): warning: padding struct 'FontDef' with 2 bytes to align 'data' [-Wpadded]
+    const uint16_t *data;
+                    ^
+1 warning generated.
+compiling FONT.c...
+Lib/TFT.c(62): warning: mixing declarations and code is incompatible with standards before C99 [-Wdeclaration-after-statement]
+    int i;
+        ^
+Lib/TFT.c(1): warning: In file included from...
+./Lib/TFT.h(7): warning: In file included from...
+./Lib/FONT.h(9): warning: padding struct 'FontDef' with 2 bytes to align 'data' [-Wpadded]
+    const uint16_t *data;
+                    ^
+2 warnings generated.
+compiling TFT.c...
+compiling timers.c...
+compiling croutine.c...
+compiling display.c...
+compiling list.c...
+compiling event_groups.c...
+freertos/tasks.c(372): warning: no previous extern declaration for non-static variable 'pxCurrentTCB' [-Wmissing-variable-declarations]
+PRIVILEGED_DATA TCB_t * volatile pxCurrentTCB = NULL;
+                                 ^
+freertos/tasks.c(372): note: declare 'static' if the variable is not intended to be used outside of this translation unit
+PRIVILEGED_DATA TCB_t * volatile pxCurrentTCB = NULL;
+                ^
+freertos/tasks.c(293): warning: padding size of 'struct tskTaskControlBlock' with 3 bytes to alignment boundary [-Wpadded]
+typedef struct tskTaskControlBlock
+               ^
+freertos/tasks.c(1020): warning: empty expression statement has no effect; remove unnecessary ';' to silence this warning [-Wextra-semi-stmt]
+                prvAddTaskToReadyList( pxNewTCB );
+                                                 ^
+freertos/tasks.c(81): warning: In file included from...
+./freertos/include/task.h(173): warning: padding struct 'struct xTASK_STATUS' with 3 bytes to align 'uxCurrentPriority' [-Wpadded]
+        UBaseType_t uxCurrentPriority;  /* The priority at which the task was running (may be inherited) when the structure was populated. */
+                    ^
+./freertos/include/task.h(167): warning: padding size of 'struct xTASK_STATUS' with 2 bytes to alignment boundary [-Wpadded]
+typedef struct xTASK_STATUS
+               ^
+freertos/tasks.c(3132): warning: function 'prvIdleTask' could be declared with attribute 'noreturn' [-Wmissing-noreturn]
+{
+^
+freertos/tasks.c(3516): warning: cast from 'volatile struct tskTaskControlBlock *' to 'void *' drops volatile qualifier [-Wcast-qual]
+                                vTaskGetInfo( ( TaskHandle_t ) pxNextTCB, &( pxTaskStatusArray[ uxTask ] ), pdTRUE, eState );
+                                                               ^
+7 warnings generated.
+compiling tasks.c...
+freertos/portable/GCC/ARM_CM3/port.c(235): warning: function 'prvTaskExitError' could be declared with attribute 'noreturn' [-Wmissing-noreturn]
+{
+^
+1 warning generated.
+compiling port.c...
+compiling heap_4.c...
+App/game_logic.c(48): warning: cast from 'const char *' to 'char *' drops const qualifier [-Wcast-qual]
+    drawString(0,  0, (char *)msg,     Font_7x10, 0xFFFF, 0x0000);
+                              ^
+App/game_logic.c(1): warning: In file included from...
+./App\game_logic.h(4): warning: In file included from...
+./Core\main.h(19): warning: In file included from...
+./Lib\TFT.h(7): warning: In file included from...
+./Lib/FONT.h(9): warning: padding struct 'FontDef' with 2 bytes to align 'data' [-Wpadded]
+    const uint16_t *data;
+                    ^
+2 warnings generated.
+compiling game_logic.c...
+App/task_snake.c(7): warning: function 'vTaskSnake' could be declared with attribute 'noreturn' [-Wmissing-noreturn]
+{
+^
+1 warning generated.
+compiling task_snake.c...
+freertos/queue.c(161): warning: padding struct 'struct QueueDefinition' with 2 bytes to align 'uxQueueNumber' [-Wpadded]
+                UBaseType_t uxQueueNumber;
+                            ^
+freertos/queue.c(130): warning: padding size of 'struct QueueDefinition' with 3 bytes to alignment boundary [-Wpadded]
+typedef struct QueueDefinition
+               ^
+2 warnings generated.
+compiling queue.c...
+App/task_input.c(11): warning: function 'vTaskInput' could be declared with attribute 'noreturn' [-Wmissing-noreturn]
+{
+^
+1 warning generated.
+compiling task_input.c...
+assembling startup_stm32f10x_md.s...
+compiling system_stm32f10x.c...
+linking...
+Program Size: Code=12748 RO-data=2320 RW-data=4 ZI-data=7368  
+".\Objects\Snake_RTOS.axf" - 0 Error(s), 21 Warning(s).
+
+<h2>Software Packages used:</h2>
+
+Package Vendor: ARM
+                https://www.keil.com/pack/ARM.CMSIS.6.2.0.pack
+                ARM.CMSIS.6.2.0
+                CMSIS (Common Microcontroller Software Interface Standard)
+   * Component: CORE Version: 6.1.1
+
+Package Vendor: Keil
+                https://www.keil.com/pack/Keil.STM32F1xx_DFP.2.4.1.pack
+                Keil.STM32F1xx_DFP.2.4.1
+                STMicroelectronics STM32F1 Series Device Support, Drivers and Examples
+   * Component: Startup Version: 1.0.0
+
+<h2>Collection of Component include folders:</h2>
+  ./RTE/Device/STM32F103C8
+  ./RTE/_RTOS
+  C:/Users/ASUS/AppData/Local/Arm/Packs/ARM/CMSIS/6.2.0/CMSIS/Core/Include
+  C:/Users/ASUS/AppData/Local/Arm/Packs/Keil/STM32F1xx_DFP/2.4.1/Device/Include
+
+<h2>Collection of Component Files used:</h2>
+
+   * Component: ARM::CMSIS:CORE:6.1.1
+
+   * Component: Keil::Device:Startup:1.0.0
+      Source file:   Device/Source/system_stm32f10x.c
+      Include file:  RTE_Driver/Config/RTE_Device.h
+      Source file:   Device/Source/ARM/startup_stm32f10x_md.s
+      Source file:   Device/Source/ARM/STM32F1xx_OPT.s
+Build Time Elapsed:  00:00:05
+</pre>
+</body>
+</html>
